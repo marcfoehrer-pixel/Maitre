@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="description" content="Tetris im Browser - mit SRS-Rotation, Hold, Ghost-Piece und Touch-Steuerung.">
+  <title>Tetris</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230d1020'/><rect x='2' y='6' width='4' height='4' fill='%23b45cf0'/><rect x='6' y='6' width='4' height='4' fill='%233ad1e0'/><rect x='10' y='6' width='4' height='4' fill='%23f2d02c'/></svg>">
+</head>
+<body>
+  <main class="game">
+    <header class="game__header">
+      <h1 class="game__title">Tetris</h1>
+      <p class="game__event" id="event"></p>
+    </header>
+
+    <div class="game__layout">
+      <aside class="panel panel--left">
+        <section class="box">
+          <h2 class="box__title">Hold</h2>
+          <canvas id="hold" class="preview preview--hold"></canvas>
+        </section>
+        <section class="box stats">
+          <div class="stat">
+            <span class="stat__label">Punkte</span>
+            <span class="stat__value" id="score">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Reihen</span>
+            <span class="stat__value" id="lines">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Level</span>
+            <span class="stat__value" id="level">1</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label">Rekord</span>
+            <span class="stat__value" id="best">0</span>
+          </div>
+        </section>
+      </aside>
+
+      <div class="board-col">
+        <div class="board-wrap">
+          <canvas id="board" class="board"></canvas>
+          <div class="overlay hidden" id="overlay">
+            <h2 class="overlay__title" id="overlay-title">Tetris</h2>
+            <p class="overlay__text" id="overlay-text"></p>
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel panel--right">
+        <section class="box">
+          <h2 class="box__title">Nächste</h2>
+          <canvas id="next" class="preview preview--next"></canvas>
+        </section>
+        <section class="box actions">
+          <button type="button" class="btn btn--primary" id="btn-new">Neues Spiel</button>
+          <button type="button" class="btn" id="btn-pause">Pause</button>
+        </section>
+      </aside>
+    </div>
+
+    <div class="touch" aria-hidden="true">
+      <button type="button" class="touch__btn" id="btn-hold">Hold</button>
+      <button type="button" class="touch__btn" id="btn-left">◀</button>
+      <button type="button" class="touch__btn" id="btn-rotate">⟳</button>
+      <button type="button" class="touch__btn" id="btn-right">▶</button>
+      <button type="button" class="touch__btn" id="btn-down">▼</button>
+      <button type="button" class="touch__btn" id="btn-drop">⤓</button>
+    </div>
+
+    <section class="help">
+      <h2 class="help__title">Steuerung</h2>
+      <ul class="help__list">
+        <li><kbd>◀</kbd> <kbd>▶</kbd> bewegen</li>
+        <li><kbd>▼</kbd> Soft Drop</li>
+        <li><kbd>Leertaste</kbd> Hard Drop</li>
+        <li><kbd>▲</kbd> / <kbd>X</kbd> drehen</li>
+        <li><kbd>Z</kbd> gegen den Uhrzeigersinn</li>
+        <li><kbd>A</kbd> 180°</li>
+        <li><kbd>C</kbd> / <kbd>Shift</kbd> Hold</li>
+        <li><kbd>P</kbd> / <kbd>Esc</kbd> Pause</li>
+        <li><kbd>Enter</kbd> neues Spiel</li>
+      </ul>
+      <p class="help__hint">Am Touchscreen: wischen bewegt, tippen dreht, nach unten wischen wirft ab.</p>
+    </section>
+  </main>
+
+  <script src="src/engine.js"></script>
+  <script src="src/renderer.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "tetris",
+  "version": "1.0.0",
+  "description": "Tetris im Browser - SRS-Rotation, Hold, Ghost-Piece, Touch-Steuerung",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/engine.test.js",
+    "start": "npx --yes serve ."
+  },
+  "keywords": [
+    "tetris",
+    "game",
+    "canvas"
+  ],
+  "license": "MIT"
+}
