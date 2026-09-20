@@ -6,7 +6,7 @@ Abhängigkeiten.
 | Projekt | Start | Dokumentation |
 | --- | --- | --- |
 | **Tetris** für den Browser | `index.html` öffnen | weiter unten |
-| **Aktien-Kurzfristprognose** — Dashboard fürs iPhone mit Live-Aktualisierung, Rangliste nach empirisch kalibrierter Aufwärtswahrscheinlichkeit, deutsche und amerikanische Titel | `npm run stocks`, dann die ausgegebene WLAN-Adresse am iPhone öffnen | [`stocks/README.md`](stocks/README.md) |
+| **Aktien-Kurzfristprognose** — Dashboard fürs iPhone mit Live-Aktualisierung, Rangliste nach empirisch kalibrierter Aufwärtswahrscheinlichkeit, deutsche und amerikanische Titel; kennwortgeschützt und auch von unterwegs erreichbar | `npm run stocks`, dann die ausgegebene WLAN-Adresse am iPhone öffnen | [`stocks/README.md`](stocks/README.md) |
 
 ---
 

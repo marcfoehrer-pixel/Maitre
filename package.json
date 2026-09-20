@@ -10,7 +10,8 @@
     "start": "npx --yes serve .",
     "build": "node tools/build-single-file.js",
     "stocks": "node stocks/server.js",
-    "stocks:demo": "node stocks/server.js --offline"
+    "stocks:demo": "node stocks/server.js --offline --no-auth",
+    "stocks:public": "node stocks/server.js --public"
   },
   "keywords": [
     "tetris",

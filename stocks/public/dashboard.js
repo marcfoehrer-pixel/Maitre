@@ -76,7 +76,25 @@
       if (status.state !== 'laeuft') endPull();
     });
 
-    source.onerror = () => setConnection('error', 'getrennt – neuer Versuch …');
+    /*
+     * EventSource verraet den Fehlercode nicht. Bei einem Abbruch wird deshalb
+     * kurz nachgefragt: ist die Anmeldung abgelaufen (401), hilft kein
+     * Wiederverbinden — dann gehoert der Nutzer auf die Anmeldeseite, statt
+     * endlos ein totes "neuer Versuch" zu sehen.
+     */
+    source.onerror = async () => {
+      setConnection('error', 'getrennt – neuer Versuch …');
+      try {
+        const probe = await fetch('/api/health', { cache: 'no-store' });
+        if (probe.status === 401) {
+          source.close();
+          window.location.href = '/login?fehler=abgelaufen';
+          return;
+        }
+        const health = await probe.json();
+        $('logoutBtn').hidden = !health.auth;
+      } catch { /* Server nicht erreichbar — der Browser versucht es selbst weiter */ }
+    };
   }
 
   /**
@@ -149,7 +167,19 @@
     state.refreshing = true;
     setConnection('busy', 'aktualisiert …');
     try {
-      await fetch('/api/refresh', { method: 'POST' });
+      const res = await fetch('/api/refresh', { method: 'POST' });
+      if (res.status === 401) {
+        window.location.href = '/login?fehler=abgelaufen';
+        return;
+      }
+      if (res.status === 429) {
+        // Die Bremse schuetzt die Finanzportale — das ist kein Fehler,
+        // sondern beabsichtigt, also wird es auch so benannt.
+        const body = await res.json().catch(() => ({}));
+        setConnection('live', `gerade aktualisiert – in ${body.retryAfter || 10} s wieder`);
+        endPull();
+        return;
+      }
     } catch {
       setConnection('error', 'Server nicht erreichbar');
       endPull();
@@ -420,7 +450,7 @@
             <span class="row-prob">${esc(pct(r.probability * 100))}</span>
             ${deltaMarkup(r.changePct, 'row-delta')}
           </span>
-          <span class="row-bar"><span style="width:${Math.max(2, Math.round(r.probability * 100))}%"></span></span>
+          <span class="row-bar"><span data-width="${Math.max(2, Math.round(r.probability * 100))}"></span></span>
         </div>`;
       })
       .join('');
@@ -437,7 +467,7 @@
           <td>${r.market === 'DE' ? 'Deutschland' : 'USA'}</td>
           <td class="num">${esc(num(r.price, 2))} ${esc(r.currency || '')}</td>
           <td class="num">${deltaMarkup(r.changePct)}</td>
-          <td class="num"><span class="bar-cell"><span class="bar-track"><span class="bar-fill" style="width:${Math.max(2, Math.round(r.probability * 100))}%"></span></span>${esc(pct(r.probability * 100))}</span></td>
+          <td class="num"><span class="bar-cell"><span class="bar-track"><span class="bar-fill" data-width="${Math.max(2, Math.round(r.probability * 100))}"></span></span>${esc(pct(r.probability * 100))}</span></td>
           <td class="num">${esc(num(r.score, 2))}</td>
           <td class="num">${esc(num(r.rsi, 0))}</td>
           <td class="num">${r.volumeRatio ? `${esc(num(r.volumeRatio, 1))}×` : '–'}</td>
@@ -454,11 +484,30 @@
     });
   }
 
+  /**
+   * Balkenbreiten nachtraeglich setzen statt als style-Attribut im Markup.
+   *
+   * Ein Schreibzugriff ueber das Objektmodell faellt nicht unter die
+   * Content-Security-Policy — dadurch kommt die Seite ohne 'unsafe-inline'
+   * fuer Stile aus, was eine der wirksamsten Sperren gegen eingeschleusten
+   * Code ueberhaupt ist.
+   */
+  function applyBarWidths(root) {
+    root.querySelectorAll('[data-width]').forEach((el) => {
+      el.style.width = `${el.dataset.width}%`;
+    });
+  }
+
   function renderWatchlist() {
     const rows = sortedRows();
     // Nur die sichtbare Fassung zeichnen — die andere waere verschwendete Arbeit.
-    if (wide.matches) renderTable(rows);
-    else renderRows(rows);
+    if (wide.matches) {
+      renderTable(rows);
+      applyBarWidths($('watchlistBody'));
+    } else {
+      renderRows(rows);
+      applyBarWidths($('watchRows'));
+    }
     $('listSub').textContent = wide.matches
       ? 'Alle geprüften Titel, absteigend nach Wahrscheinlichkeit. Spalten sind sortierbar.'
       : `Alle ${rows.length} geprüften Titel, absteigend nach Wahrscheinlichkeit.`;
@@ -541,6 +590,19 @@
   });
 
   $('refreshBtn').addEventListener('click', triggerRefresh);
+
+  $('logoutBtn').addEventListener('click', async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch { /* selbst wenn das fehlschlaegt: die Anmeldeseite ist der richtige Ort */ }
+    window.location.href = '/login';
+  });
+
+  // Der Abmelden-Knopf ergibt nur Sinn, wenn ueberhaupt ein Zugangsschutz laeuft.
+  fetch('/api/health', { cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((health) => { if (health) $('logoutBtn').hidden = !health.auth; })
+    .catch(() => {});
 
   $('themeBtn').addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme');

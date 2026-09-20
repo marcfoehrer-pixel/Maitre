@@ -536,6 +536,7 @@ main {
 .sheet-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.82rem; }
 .sheet-row output { font-weight: 700; font-variant-numeric: tabular-nums; }
 .sheet-note { margin: 6px 0 8px; font-size: 0.74rem; color: var(--text-muted); }
+.sheet-actions { display: flex; justify-content: flex-end; padding-bottom: 8px; }
 
 input[type="range"] {
   width: 100%;

@@ -10,9 +10,10 @@ Home-Indikator abgestimmt. Am Schreibtisch wird daraus dieselbe Oberfläche in
 mehreren Spalten mit voller Tabelle.
 
 ```bash
-npm run stocks          # Live-Betrieb
-npm run stocks:demo     # ohne Netz, mit erzeugten Demo-Daten
-npm run test:stocks     # 55 Tests
+npm run stocks          # Live-Betrieb im eigenen WLAN
+npm run stocks:public   # zusätzlich hinter einem Tunnel erreichbar
+npm run stocks:demo     # ohne Netz und ohne Anmeldung, mit Demo-Daten
+npm run test:stocks     # 77 Tests
 ```
 
 ---
@@ -53,6 +54,90 @@ Läuft der Server dauerhaft (etwa auf einem Rechner, der ohnehin an ist), ist
 das Dashboard jederzeit über das Symbol auf dem Home-Bildschirm erreichbar.
 Ist der Server aus, meldet die Oberfläche das in der Kopfzeile, statt alte
 Zahlen als aktuelle auszugeben.
+
+---
+
+## Von unterwegs erreichbar
+
+Sobald das Dashboard außerhalb des eigenen WLANs erreichbar ist, ist es für
+jeden erreichbar, der die Adresse kennt. Deshalb zuerst das Wichtigste:
+
+### Der Zugangsschutz ist immer an
+
+Beim Start verlangt der Server ein Kennwort. Ist keines vorgegeben, erzeugt er
+eines und nennt es in der Ausgabe:
+
+```
+  ZUGANG: Kennwort (neu erzeugt, gilt nur fuer diesen Start)
+
+      Vzpp-vpU5-Sy7J-hLXf
+```
+
+Ein erzeugtes Kennwort ändert sich bei jedem Neustart. Für den dauerhaften
+Betrieb deshalb eines fest vorgeben:
+
+```bash
+DASHBOARD_PASSWORD="Ihr-Kennwort" npm run stocks
+```
+
+Die Anmeldung hält **30 Tage je Gerät** — am iPhone meldet man sich also
+praktisch einmal an. Ein geändertes Kennwort macht alle Anmeldungen sofort
+ungültig. Abmelden geht über die Schwellen-Leiste unten.
+
+Nur für den Betrieb im eigenen WLAN lässt sich der Schutz mit `--no-auth`
+abschalten. In Verbindung mit `--public` **verweigert der Server den Start** —
+ein offenes Dashboard im Internet ist kein Zustand, den man versehentlich
+herstellen können sollte.
+
+### Der Weg nach draußen
+
+Immer mit `--public` starten. Der Schalter bündelt, was hinter einem Tunnel
+nötig ist: Kennwort verpflichtend, weitergereichte Absender und
+HTTPS-Angaben beachten (sonst greift die Versuchsbremse ins Leere und das
+Sitzungs-Cookie bekäme kein `Secure`-Kennzeichen).
+
+```bash
+DASHBOARD_PASSWORD="Ihr-Kennwort" npm run stocks:public
+```
+
+Dann einen der folgenden Wege — **empfohlen ist der erste**:
+
+| Weg | Wie | Beurteilung |
+| --- | --- | --- |
+| **Tailscale, privat** *(empfohlen)* | `tailscale serve --bg 4173` | Das Dashboard steht **nicht** im Internet, sondern nur in Ihrem eigenen Geräteverbund. Das iPhone braucht die Tailscale-App, einmal angemeldet. Feste Adresse, HTTPS automatisch, kostenlos. Angriffsfläche: praktisch keine. |
+| **Tailscale Funnel, öffentlich** | `tailscale funnel --bg 4173` | Feste öffentliche HTTPS-Adresse, keine App auf dem Telefon nötig. Geschützt allein durch Ihr Kennwort. Bequemer, aber die Adresse ist erreichbar. |
+| **Cloudflare Tunnel** | `cloudflared tunnel --url http://localhost:4173` | Sinnvoll, wenn Sie ohnehin eine Domain bei Cloudflare haben. Die kostenlose Schnellvariante vergibt bei **jedem Start eine neue Adresse** — für ein Symbol auf dem Home-Bildschirm unbrauchbar. Dafür braucht es einen benannten Tunnel mit eigener Domain. |
+| **Kleiner Server (VPS)** | Projekt dorthin kopieren, `npm run stocks:public` hinter einem Reverse-Proxy mit HTTPS | Die einzige Variante, die auch läuft, wenn Ihr Rechner aus ist. Dafür Kosten und Pflege. |
+| **Port im Router freigeben** | — | **Nicht tun.** Damit steht Ihr Rechner ungeschützt im Netz, ohne HTTPS und ohne Schutz für alles andere, was darauf läuft. Ein Tunnel leistet dasselbe ohne diese Öffnung. |
+
+Der Server erkennt beim Start selbst, ob `tailscale` oder `cloudflared`
+installiert sind, und nennt dann den passenden Befehl.
+
+### Was Sie dabei wissen sollten
+
+- **Ihr Rechner muss laufen.** Ist er aus oder im Ruhezustand, ist auch das
+  Dashboard weg. Die Oberfläche sagt das in der Kopfzeile, statt alte Zahlen
+  als aktuelle auszugeben.
+- **Mobilfunk-Datenverbrauch.** Jede Aktualisierung überträgt je nach
+  Titelzahl etwa 50–130 KB. Bei 40 Titeln im Minutentakt sind das rund
+  **7 MB pro Stunde**. Unterwegs lohnt ein größerer Abstand:
+  `--refresh 180` senkt das auf etwa ein Drittel.
+- **Abbrechende Verbindungen** sind unterwegs normal. Die Oberfläche baut die
+  Verbindung selbst wieder auf und zeigt den Zustand in der Kopfzeile an.
+
+### Wogegen der Server geschützt ist
+
+| | |
+| --- | --- |
+| **Kennwort erraten** | Vergleich in konstanter Zeit (aus Laufzeitunterschieden lässt sich ein Kennwort sonst Zeichen für Zeichen erraten), dazu höchstens 10 Versuche je Absender und Viertelstunde. |
+| **Sitzung fälschen** | Das Cookie ist mit HMAC-SHA256 signiert, der Schlüssel aus dem Kennwort abgeleitet (scrypt). `HttpOnly`, `SameSite=Lax`, `Secure` sobald HTTPS anliegt. |
+| **Eingeschleuster Code** | Strenge Content-Security-Policy **ohne** `unsafe-inline` — dafür liegen alle Stile und Skripte in eigenen Dateien, und Balkenbreiten werden über das Objektmodell gesetzt statt als `style`-Attribut. Dazu `nosniff`, `frame-ancestors 'none'`, `no-referrer`. |
+| **Dateien außerhalb von `public/`** | Pfade werden aufgelöst und gegen das Verzeichnis samt Trennzeichen geprüft. |
+| **Missbrauch der Finanzportale** | Von Hand ausgelöste Durchläufe höchstens alle 10 Sekunden — sonst könnte ein Fremder (oder ein hängender Tab) die Portale so lange belasten, bis Ihre IP-Adresse dort gesperrt wird. |
+| **Überlastung** | Höchstens 24 gleichzeitige Live-Verbindungen, Formularinhalte auf 4 KB begrenzt. |
+
+Elf Tests starten dafür einen echten Server und klopfen jeden Pfad ab — die
+gefährlichste Lücke wäre einer, den die Weiche schlicht nicht sieht.
 
 ---
 
@@ -183,6 +268,7 @@ Zum Schluss ein harter Deckel: **2 % bis 97 %**.
 stocks/
   server.js              HTTP-Server, JSON-Schnittstelle, Live-Strom (SSE)
   lib/
+    auth.js              Kennwort, signierte Sitzung, Versuchsbremse
     indicators.js        reine Indikator-Mathematik, kausal
     features.js          Kerzen -> Merkmalsvektor -> Signalwert
     model.js             Signalwert -> kalibrierte Wahrscheinlichkeit
@@ -200,10 +286,11 @@ stocks/
     manifest.webmanifest Angaben für den Home-Bildschirm
     icon.svg             Quelle der App-Symbole
     icon-180/192/512.png App-Symbole (iOS nimmt für das Symbol kein SVG)
+    login.html/.css/.js  Anmeldeseite
     dashboard.css        Gestaltung — iPhone zuerst, hell und dunkel
     charts.js            Diagramme als Inline-SVG, ohne Bibliothek
     dashboard.js         Live-Verbindung, Zustand, Darstellung
-  test/                  55 Tests
+  test/                  77 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -232,8 +319,13 @@ node stocks/server.js [Optionen]
 | `--range` | `10d` | Historie für die Kalibrierung |
 | `--top` | `5` | Länge der Rangliste |
 | `--offline` | aus | Demo-Daten statt Portalabruf |
+| `--password` | erzeugt | Zugangskennwort |
+| `--public` | aus | Betrieb hinter einem Tunnel: Kennwort verpflichtend, weitergereichte Absender und HTTPS-Angaben beachten |
+| `--no-auth` | aus | Zugangsschutz abschalten — nur im eigenen WLAN vertretbar |
+| `--host` | `0.0.0.0` | Adresse, an der gelauscht wird (`127.0.0.1` = nur dieser Rechner) |
 
-Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`.
+Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`,
+`DASHBOARD_PASSWORD`, `PUBLIC`, `HOST`, `TRUST_PROXY`.
 
 ### Schnittstelle
 
@@ -243,6 +335,12 @@ Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`.
 | `GET /api/stream?horizon=3` | Live-Strom (SSE), Ereignisse `snapshot` und `status` |
 | `POST /api/refresh` | Durchlauf sofort anstoßen |
 | `GET /api/health` | Zustand des Servers |
+| `GET /login`, `POST /login` | Anmeldung |
+| `POST /api/logout` | Abmelden |
+| `GET /healthz` | Lebenszeichen für Überwachung, ohne Anmeldung |
+
+Alles außer `/healthz`, der Anmeldeseite und den App-Symbolen setzt eine
+gültige Sitzung voraus.
 
 ---
 
@@ -252,7 +350,7 @@ Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`.
 npm run test:stocks
 ```
 
-55 Tests über fünf Dateien. Die wichtigsten prüfen nicht Funktionen,
+77 Tests über sieben Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich
@@ -265,6 +363,10 @@ sondern **Zusagen**:
 - *Die Seite ist fürs iPhone ausgezeichnet* — fehlt das Symbol als PNG oder
   der Eintrag für die sicheren Ränder, merkt man das sonst erst auf dem
   Telefon, und zwar als leere Fläche. Zoom darf nie gesperrt sein.
+- *Ohne Anmeldung gibt der Server nichts heraus* — gegen einen echten,
+  gestarteten Server, Pfad für Pfad. Diese Tests haben beim Schreiben eine
+  Weiterleitung ohne Sicherheitskopfzeilen gefunden; seitdem werden die
+  Kopfzeilen zentral gesetzt statt an jedem Ausgang einzeln.
 
 Der Demo-Generator ist deterministisch (Startwert aus dem Kürzel), Testläufe
 sind daher reproduzierbar.
@@ -276,6 +378,9 @@ sind daher reproduzierbar.
 Was dieses Dashboard **nicht** kann, und zwar grundsätzlich:
 
 - **Es ist keine Anlageberatung** und liefert keine Order-Signale.
+- **Der Zugangsschutz ist ein Kennwort, keine Benutzerverwaltung.** Für ein
+  Dashboard einer Person ist das angemessen; für mehrere Personen mit
+  unterschiedlichen Rechten wäre es zu wenig.
 - **Kurse sind verzögert.** Kostenlose Portale liefern für Xetra und die
   US-Börsen typisch 15 Minuten verzögert. Für Sekundenentscheidungen taugt das
   nicht — und mit verzögerten Daten wäre ohnehin nichts zu holen.
