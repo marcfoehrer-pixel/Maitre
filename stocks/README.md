@@ -4,11 +4,55 @@ Ein Dashboard, das deutsche und amerikanische Aktien danach ordnet, wie
 wahrscheinlich ein **höherer Kurs in den kommenden Stunden** ist — mit einer
 Zahl, die nicht geraten, sondern an der Vergangenheit **gemessen** ist.
 
+Gebaut fürs iPhone: einspaltig, Bedienung unten in der Daumenzone, alle
+Trefferflächen mindestens 44 × 44 pt, Ränder auf Dynamic Island und
+Home-Indikator abgestimmt. Am Schreibtisch wird daraus dieselbe Oberfläche in
+mehreren Spalten mit voller Tabelle.
+
 ```bash
-npm run stocks          # Live-Betrieb, http://localhost:4173
+npm run stocks          # Live-Betrieb
 npm run stocks:demo     # ohne Netz, mit erzeugten Demo-Daten
-npm run test:stocks     # 48 Tests
+npm run test:stocks     # 55 Tests
 ```
+
+---
+
+## Am iPhone benutzen
+
+Auf dem iPhone läuft kein Node — der Server steht auf Ihrem Rechner, das
+Telefon ruft ihn im WLAN auf. Drei Schritte, einmalig:
+
+1. **Server starten** auf dem Rechner: `npm run stocks`.
+   Beim Start gibt er die Adresse aus, die das iPhone braucht:
+
+   ```
+   Aktien-Dashboard
+     an diesem Rechner   http://localhost:4173
+     am iPhone im WLAN   http://192.168.1.42:4173   (en0)
+   ```
+
+2. **Diese Adresse im Safari des iPhones öffnen.** Rechner und Telefon müssen
+   im selben WLAN sein.
+
+3. **Teilen → „Zum Home-Bildschirm"**. Danach startet das Dashboard mit
+   eigenem Symbol und ohne Safari-Leisten, wie eine App.
+
+### Was am Telefon anders ist
+
+| | |
+| --- | --- |
+| **Bedienung unten** | Horizont, Märkte, Schwelle und Aktualisieren liegen in der Daumenzone — nicht oben am Rand, wo man die Hand umgreifen müsste. |
+| **Tippen statt Überfahren** | Es gibt keinen Mauszeiger: Diagrammbalken und Kursverläufe blenden ihre Werte beim Antippen ein, ein Tipp daneben blendet sie wieder aus. Über den Kursverlauf lässt sich mit dem Finger streichen. |
+| **Wesentliches zuerst** | Je Titel stehen Wahrscheinlichkeit, Band und Verlauf offen; Kennzahlen und Begründung liegen einen Tipp entfernt. Hinweise zeigen ihre Kernaussage in einer Zeile. Am Schreibtisch ist alles aufgeklappt. |
+| **Liste statt Tabelle** | Die Beobachtungsliste wird als Zeilen gezeichnet — kein Querscrollen durch elf Spalten. Ab Tablet-Breite erscheint die volle, sortierbare Tabelle. |
+| **Ziehen zum Aktualisieren** | Von oben nach unten ziehen stößt einen Durchlauf an. |
+| **Verbindung nach dem Zurückkehren** | iOS kappt stehende Verbindungen, sobald die App in den Hintergrund geht. Beim Zurückkehren baut das Dashboard sie neu auf und prüft, ob die Daten veraltet sind — stumm veraltete Kurse anzuzeigen wäre der gefährlichste Zustand. |
+| **Akku** | Der Sekundenzähler läuft im Hintergrund nicht weiter. |
+
+Läuft der Server dauerhaft (etwa auf einem Rechner, der ohnehin an ist), ist
+das Dashboard jederzeit über das Symbol auf dem Home-Bildschirm erreichbar.
+Ist der Server aus, meldet die Oberfläche das in der Kopfzeile, statt alte
+Zahlen als aktuelle auszugeben.
 
 ---
 
@@ -54,8 +98,9 @@ Gelegenheit.
 | **Beobachtungsliste** | Alle geprüften Titel, sortierbar nach jeder Spalte. |
 
 Bedienbar sind Prognosehorizont (1–4 h), Anzeigeschwelle (50–95 %) und
-Marktfilter (Deutschland / USA / beide). Horizontwechsel rechnet der Server neu,
-Schwelle und Filter wirken sofort in der Anzeige.
+Marktfilter (Deutschland / USA / beide) — am Telefon über die Leiste am unteren
+Rand. Horizontwechsel rechnet der Server neu, Schwelle und Filter wirken sofort
+in der Anzeige.
 
 **Live-Aktualisierung** über Server-Sent Events: der Server ruft in festem Takt
 (Standard 60 s) ab und schiebt jede neue Momentaufnahme in alle offenen
@@ -152,10 +197,13 @@ stocks/
     synthetic.js         deterministischer Demo-Generator (Offline-Betrieb)
   public/
     index.html           Seitengerüst
-    dashboard.css        Gestaltung, hell und dunkel, ab 390 px
+    manifest.webmanifest Angaben für den Home-Bildschirm
+    icon.svg             Quelle der App-Symbole
+    icon-180/192/512.png App-Symbole (iOS nimmt für das Symbol kein SVG)
+    dashboard.css        Gestaltung — iPhone zuerst, hell und dunkel
     charts.js            Diagramme als Inline-SVG, ohne Bibliothek
     dashboard.js         Live-Verbindung, Zustand, Darstellung
-  test/                  48 Tests
+  test/                  55 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -204,7 +252,7 @@ Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`.
 npm run test:stocks
 ```
 
-48 Tests über vier Dateien. Die drei wichtigsten prüfen nicht Funktionen,
+55 Tests über fünf Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich
@@ -214,6 +262,9 @@ sondern **Zusagen**:
   dürfen nie als Gewissheit durchgehen.
 - *Der Punktschätzer liegt stets im eigenen Intervall* — eine Zahl außerhalb
   ihres eigenen Konfidenzintervalls ist irreführend.
+- *Die Seite ist fürs iPhone ausgezeichnet* — fehlt das Symbol als PNG oder
+  der Eintrag für die sicheren Ränder, merkt man das sonst erst auf dem
+  Telefon, und zwar als leere Fläche. Zoom darf nie gesperrt sein.
 
 Der Demo-Generator ist deterministisch (Startwert aus dem Kürzel), Testläufe
 sind daher reproduzierbar.

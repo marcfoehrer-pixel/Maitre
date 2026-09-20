@@ -15,6 +15,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runCycle, DEFAULTS } = require('./lib/engine');
 
@@ -26,8 +27,29 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
   '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
+
+/**
+ * Adressen im lokalen Netz.
+ *
+ * Auf dem iPhone laeuft kein Node — der Server steht auf dem Rechner, das
+ * Telefon ruft ihn im WLAN auf. Deshalb wird die Netzadresse beim Start
+ * ausgegeben: sonst muss man sie sich erst muehsam zusammensuchen.
+ */
+function lanAddresses() {
+  const out = [];
+  for (const [name, entries] of Object.entries(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (entry.family !== 'IPv4' && entry.family !== 4) continue;
+      if (entry.internal) continue;
+      out.push({ name, address: entry.address });
+    }
+  }
+  return out;
+}
 
 function parseArgs(argv) {
   const out = {};
@@ -245,8 +267,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(config.port, () => {
+  const lan = lanAddresses();
   console.log(
-    `Aktien-Dashboard auf http://localhost:${config.port}\n` +
+    `Aktien-Dashboard\n` +
+      `  an diesem Rechner   http://localhost:${config.port}\n` +
+      (lan.length
+        ? lan.map((i) => `  am iPhone im WLAN   http://${i.address}:${config.port}   (${i.name})`).join('\n') +
+          `\n  Dort im Browser oeffnen, dann Teilen -> "Zum Home-Bildschirm" —\n` +
+          `  danach startet es wie eine App, ohne Safari-Leisten.\n`
+        : `  (keine Netzadresse gefunden — fuer den Zugriff vom iPhone muss der\n` +
+          `   Rechner im selben WLAN sein)\n`) +
       `  Maerkte: ${config.markets.join(', ')} · Titel: ${config.limit} · ` +
       `Raster: ${config.interval} · Historie: ${config.range}\n` +
       `  Horizont: ${config.horizonHours} h · Schwelle: ${(config.threshold * 100).toFixed(0)} % · ` +

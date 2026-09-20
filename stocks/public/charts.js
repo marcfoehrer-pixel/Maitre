@@ -27,25 +27,53 @@ const Charts = (() => {
     return node;
   }
 
+  /**
+   * Einblendung positionieren.
+   *
+   * Am Finger anders als an der Maus: der Daumen verdeckt alles unter dem
+   * Beruehrpunkt, deshalb wird die Einblendung dort mittig darueber gesetzt
+   * statt schraeg daneben.
+   */
   function showTip(html, event) {
     const tip = tooltipEl();
     if (!tip) return;
     tip.innerHTML = html;
     tip.hidden = false;
-    const pad = 14;
-    const rect = tip.getBoundingClientRect();
-    let x = event.clientX + pad;
-    let y = event.clientY + pad;
-    if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
-    if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
-    tip.style.left = `${Math.max(8, x)}px`;
-    tip.style.top = `${Math.max(8, y)}px`;
+    const box = tip.getBoundingClientRect();
+    const margin = 8;
+    const touch = event.pointerType === 'touch';
+    let x;
+    let y;
+
+    if (touch) {
+      x = event.clientX - box.width / 2;
+      y = event.clientY - box.height - 22;
+      if (y < margin) y = event.clientY + 26;
+    } else {
+      x = event.clientX + 14;
+      y = event.clientY + 14;
+      if (x + box.width > window.innerWidth - margin) x = event.clientX - box.width - 14;
+      if (y + box.height > window.innerHeight - margin) y = event.clientY - box.height - 14;
+    }
+
+    tip.style.left = `${Math.min(Math.max(margin, x), window.innerWidth - box.width - margin)}px`;
+    tip.style.top = `${Math.min(Math.max(margin, y), window.innerHeight - box.height - margin)}px`;
   }
 
   function hideTip() {
     const tip = tooltipEl();
     if (tip) tip.hidden = true;
   }
+
+  // Tippen irgendwo ausserhalb eines Diagramms blendet wieder aus. In der
+  // Erfassungsphase, damit ein Tipp auf einen Balken danach neu einblenden kann.
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!event.target.closest || !event.target.closest('svg')) hideTip();
+    },
+    true
+  );
 
   const fmtTime = (t) =>
     new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
@@ -138,13 +166,23 @@ const Charts = (() => {
         event
       );
     };
-    hit.addEventListener('pointermove', move);
-    hit.addEventListener('pointerdown', move);
-    hit.addEventListener('pointerleave', () => {
+    const clear = () => {
       crosshair.setAttribute('opacity', 0);
       marker.setAttribute('opacity', 0);
       hideTip();
+    };
+    hit.addEventListener('pointerdown', (event) => {
+      // Zeiger erfassen: der Finger darf beim Abtasten den Balken verlassen.
+      if (hit.setPointerCapture) hit.setPointerCapture(event.pointerId);
+      move(event);
     });
+    hit.addEventListener('pointermove', (event) => {
+      if (event.pointerType === 'touch' && !event.buttons && !hit.hasPointerCapture?.(event.pointerId)) return;
+      move(event);
+    });
+    hit.addEventListener('pointerup', (event) => { if (event.pointerType === 'touch') clear(); });
+    hit.addEventListener('pointercancel', clear);
+    hit.addEventListener('pointerleave', (event) => { if (event.pointerType !== 'touch') clear(); });
 
     return { rising };
   }
@@ -248,20 +286,35 @@ const Charts = (() => {
         fill: 'var(--series-1)',
         opacity: thin ? 0.42 : 1,
       }, svg);
-      bar.addEventListener('pointerenter', (event) =>
-        showTip(
-          `<b>${(b.rate * 100).toFixed(1)} % Trefferquote</b>` +
-            `<span class="t-sub">Signal ${b.from.toFixed(2)} bis ${b.to.toFixed(2)}</span>` +
-            `<span class="t-sub">${b.n.toLocaleString('de-DE')} Beobachtungen${thin ? ' · dünne Stichprobe' : ''}</span>`,
-          event
-        )
-      );
-      bar.addEventListener('pointermove', (event) => showTip(
+      const tip = () =>
         `<b>${(b.rate * 100).toFixed(1)} % Trefferquote</b>` +
-          `<span class="t-sub">Signal ${b.from.toFixed(2)} bis ${b.to.toFixed(2)}</span>` +
-          `<span class="t-sub">${b.n.toLocaleString('de-DE')} Beobachtungen${thin ? ' · dünne Stichprobe' : ''}</span>`,
-        event));
-      bar.addEventListener('pointerleave', hideTip);
+        `<span class="t-sub">Signal ${b.from.toFixed(2)} bis ${b.to.toFixed(2)}</span>` +
+        `<span class="t-sub">${b.n.toLocaleString('de-DE')} Beobachtungen${thin ? ' · dünne Stichprobe' : ''}</span>`;
+      // pointerdown deckt Finger und Maus gleichermassen ab; pointerenter ist
+      // nur die Zugabe fuer die Maus.
+      bar.addEventListener('pointerdown', (event) => showTip(tip(), event));
+      bar.addEventListener('pointerenter', (event) => {
+        if (event.pointerType !== 'touch') showTip(tip(), event);
+      });
+      bar.addEventListener('pointermove', (event) => {
+        if (event.pointerType !== 'touch') showTip(tip(), event);
+      });
+      bar.addEventListener('pointerleave', (event) => {
+        if (event.pointerType !== 'touch') hideTip();
+      });
+
+      // Unsichtbare Trefferflaeche ueber die volle Spaltenhoehe: ein 20 px
+      // breiter Balken ist am Finger sonst kaum zu treffen.
+      const target = el('rect', {
+        x: m.left + i * slot, y: m.top, width: slot, height: plotH, fill: 'transparent',
+      }, svg);
+      target.addEventListener('pointerdown', (event) => showTip(tip(), event));
+      target.addEventListener('pointerenter', (event) => {
+        if (event.pointerType !== 'touch') showTip(tip(), event);
+      });
+      target.addEventListener('pointerleave', (event) => {
+        if (event.pointerType !== 'touch') hideTip();
+      });
 
       // Nur jede zweite Achsenmarke beschriften — sonst kollidieren die Zahlen.
       if (i % 2 === 0 || usable.length <= 6) {

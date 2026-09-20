@@ -1,15 +1,20 @@
 'use strict';
 
 /**
- * Oberflaeche: Live-Verbindung, Zustand, Darstellung.
+ * Oberflaeche: Live-Verbindung, Zustand, Darstellung — fuer den Finger gebaut.
  *
  * Der Browser rechnet bewusst nichts nach. Alles, was eine Zahl ist, kommt
- * fertig vom Server — hier wird nur gefiltert, sortiert und gezeichnet. So
- * gibt es keine zweite, abweichende Wahrheit in der Anzeige.
+ * fertig vom Server; hier wird nur gefiltert, sortiert und gezeichnet. So gibt
+ * es keine zweite, abweichende Wahrheit in der Anzeige.
+ *
+ * Telefonspezifisch sind drei Dinge: die Liste wird am schmalen Bildschirm als
+ * Zeilen statt als Tabelle gezeichnet, die Verbindung wird beim Zurueckkehren
+ * in die App neu aufgebaut, und Ziehen von oben loest eine Aktualisierung aus.
  */
 
 (() => {
   const $ = (id) => document.getElementById(id);
+  const wide = window.matchMedia('(min-width: 760px)');
 
   const state = {
     snapshot: null,
@@ -17,9 +22,9 @@
     threshold: 0.8,
     market: 'alle',
     sort: { key: 'probability', dir: 'desc' },
-    connection: 'verbinde',
     source: null,
     countdownTimer: null,
+    refreshing: false,
   };
 
   // ---------- Formatierung -------------------------------------------------
@@ -31,22 +36,21 @@
   const pct = (v, digits = 1) => (v === null || v === undefined || Number.isNaN(v) ? '–' : `${nf(digits).format(v)} %`);
   const signed = (v, digits = 2) =>
     v === null || v === undefined || Number.isNaN(v) ? '–' : `${v > 0 ? '+' : ''}${nf(digits).format(v)} %`;
-  const clock = (t) => new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const clock = (t) => new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   /** Richtung nie nur ueber Farbe: Pfeil und Vorzeichen tragen die Aussage. */
-  function deltaMarkup(value) {
-    if (value === null || value === undefined) return '<span class="delta flat">–</span>';
+  function deltaMarkup(value, extraClass = 'delta') {
+    if (value === null || value === undefined) return `<span class="${extraClass} flat">–</span>`;
     const cls = value > 0.02 ? 'up' : value < -0.02 ? 'down' : 'flat';
     const arrow = value > 0.02 ? '▲' : value < -0.02 ? '▼' : '■';
-    return `<span class="delta ${cls}">${arrow} ${esc(signed(value))}</span>`;
+    return `<span class="${extraClass} ${cls}">${arrow} ${esc(signed(value))}</span>`;
   }
 
   // ---------- Live-Verbindung ---------------------------------------------
 
   function setConnection(stateName, text) {
-    state.connection = stateName;
     $('live').dataset.state = stateName;
     $('liveText').textContent = text;
   }
@@ -60,6 +64,7 @@
     source.addEventListener('snapshot', (event) => {
       state.snapshot = JSON.parse(event.data);
       setConnection('live', 'live');
+      endPull();
       render();
     });
 
@@ -68,10 +73,87 @@
       if (status.state === 'laeuft') setConnection('busy', 'aktualisiert …');
       else if (status.state === 'fehler') setConnection('error', `Fehler: ${status.message}`);
       else if (state.snapshot) setConnection('live', 'live');
+      if (status.state !== 'laeuft') endPull();
     });
 
-    // EventSource baut von selbst wieder auf — hier nur die Anzeige ehrlich halten.
-    source.onerror = () => setConnection('error', 'Verbindung unterbrochen – neuer Versuch …');
+    source.onerror = () => setConnection('error', 'getrennt – neuer Versuch …');
+  }
+
+  /**
+   * iOS schliesst stehende Verbindungen, sobald die App in den Hintergrund
+   * geht. Ohne diesen Wiederaufbau zeigt das Dashboard nach dem Zurueckkehren
+   * stumm veraltete Kurse an — der gefaehrlichste aller Zustaende.
+   */
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (state.countdownTimer) clearInterval(state.countdownTimer);
+      state.countdownTimer = null;
+      return;
+    }
+    const closed = !state.source || state.source.readyState === EventSource.CLOSED;
+    const stale = state.snapshot && Date.now() - state.snapshot.generatedAt > 90000;
+    if (closed || stale) connect();
+    if (state.snapshot) startCountdown();
+  });
+
+  // ---------- Ziehen zum Aktualisieren --------------------------------------
+
+  const pull = $('pull');
+  const PULL_TRIGGER = 80;
+  let pullStart = null;
+  let pullArmed = false;
+
+  function endPull() {
+    state.refreshing = false;
+    pullArmed = false;
+    pullStart = null;
+    pull.dataset.visible = 'false';
+    pull.dataset.armed = 'false';
+    pull.dataset.loading = 'false';
+  }
+
+  document.addEventListener('touchstart', (event) => {
+    if (state.refreshing || window.scrollY > 0 || event.touches.length !== 1) return;
+    pullStart = event.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (event) => {
+    if (pullStart === null || state.refreshing) return;
+    const distance = event.touches[0].clientY - pullStart;
+    if (distance <= 0 || window.scrollY > 0) {
+      pull.dataset.visible = 'false';
+      return;
+    }
+    pull.dataset.visible = 'true';
+    pullArmed = distance > PULL_TRIGGER;
+    pull.dataset.armed = String(pullArmed);
+    $('pullText').textContent = pullArmed ? 'loslassen zum Aktualisieren' : 'zum Aktualisieren ziehen';
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (pullStart === null) return;
+    if (pullArmed) {
+      triggerRefresh();
+      $('pullText').textContent = 'wird aktualisiert …';
+      pull.dataset.loading = 'true';
+      // Falls keine Antwort kommt, nicht ewig drehen lassen.
+      setTimeout(endPull, 12000);
+    } else {
+      endPull();
+    }
+    pullStart = null;
+    pullArmed = false;
+  }, { passive: true });
+
+  async function triggerRefresh() {
+    state.refreshing = true;
+    setConnection('busy', 'aktualisiert …');
+    try {
+      await fetch('/api/refresh', { method: 'POST' });
+    } catch {
+      setConnection('error', 'Server nicht erreichbar');
+      endPull();
+    }
   }
 
   // ---------- Darstellung ---------------------------------------------------
@@ -85,19 +167,14 @@
 
   function renderClocks() {
     const snap = state.snapshot;
-    const box = $('clocks');
-    if (!snap || !snap.venues) {
-      box.textContent = '';
-      return;
-    }
     const names = { DE: 'Xetra', US: 'NYSE' };
-    box.innerHTML = Object.entries(snap.venues)
+    $('clocks').innerHTML = Object.entries(snap.venues || {})
       .map(([market, v]) => {
         const time = new Date().toLocaleTimeString('de-DE', {
           timeZone: v.timezone, hour: '2-digit', minute: '2-digit',
         });
-        const mark = v.open ? '●' : '○';
-        return `<span class="clock"><b>${esc(names[market] || market)}</b> ${esc(time)} ${mark} ${esc(v.open ? 'offen' : v.phase)}</span>`;
+        return `<span class="clock" data-open="${v.open}"><b>${esc(names[market] || market)}</b> ${esc(time)} ` +
+          `<span class="mark" aria-hidden="true">${v.open ? '●' : '○'}</span> ${esc(v.open ? 'offen' : v.phase)}</span>`;
       })
       .join('');
   }
@@ -105,18 +182,16 @@
   function renderNotices() {
     const snap = state.snapshot;
     const box = $('notices');
-    if (!snap) return;
     const notices = [];
 
     if (snap.demoData) {
       notices.push({
         level: 'critical',
         icon: '⚠',
-        html:
-          '<strong>Demo-Daten, keine echten Kurse.</strong> Der Server läuft im Offline-Modus oder ' +
-          'erreicht die Portale nicht. Die Zahlen zeigen, dass die Pipeline arbeitet — ' +
-          'handeln lässt sich danach nicht. Ohne <code>--offline</code> starten und die ' +
-          'Netzverbindung zu den Portalen prüfen.',
+        title: 'Demo-Daten, keine echten Kurse.',
+        body:
+          'Der Server läuft im Offline-Modus oder erreicht die Portale nicht. Die Zahlen ' +
+          'zeigen, dass die Rechenkette arbeitet — handeln lässt sich danach nicht.',
       });
     }
 
@@ -130,13 +205,10 @@
       notices.push({
         level: 'info',
         icon: 'ℹ',
-        html:
-          `<strong>Kein Titel erreicht derzeit ${Math.round(state.threshold * 100)} %.</strong> ` +
-          `Der stärkste Kandidat steht bei ${esc(pct(best.probability * 100))}. ` +
+        title: `Kein Titel erreicht ${Math.round(state.threshold * 100)} % — stärkster: ${pct(best.probability * 100)}.`,
+        body:
           'Das ist der Normalfall und kein Fehler: über wenige Stunden ist Kursbewegung ' +
-          'weit überwiegend Rauschen. Gemessene Trefferquoten oberhalb von etwa 60 % ' +
-          'treten fast nur bei zu kleinen Stichproben auf — deshalb wird hier geschrumpft ' +
-          'statt aufgerundet. Die Rangliste bleibt trotzdem nützlich: sie ordnet die Lage, ' +
+          'weit überwiegend Rauschen. Die Rangliste bleibt nützlich — sie ordnet die Lage, ' +
           'auch wenn niemand die Wunschmarke reißt.',
       });
     }
@@ -146,10 +218,10 @@
       notices.push({
         level: 'warning',
         icon: '◷',
-        html:
-          `<strong>${closed.map(([m, v]) => `${m === 'DE' ? 'Xetra' : 'NYSE/Nasdaq'} ${v.phase}`).join(', ')}.</strong> ` +
+        title: `${closed.map(([m, v]) => `${m === 'DE' ? 'Xetra' : 'NYSE/Nasdaq'} ${v.phase}`).join(', ')}.`,
+        body:
           'Außerhalb der Handelszeit findet die prognostizierte Bewegung nicht statt. ' +
-          'Alle Werte sind deshalb stark zur Mitte gedämpft und dienen nur der Vorbereitung.',
+          'Alle Werte sind stark zur Mitte gedämpft.',
       });
     }
 
@@ -157,24 +229,24 @@
       notices.push({
         level: 'warning',
         icon: '⚠',
-        html:
-          `<strong>${snap.skipped.length} Titel übersprungen.</strong> ` +
-          esc(snap.skipped.slice(0, 5).map((s) => `${s.symbol} (${s.reason})`).join(', ')),
+        title: `${snap.skipped.length} Titel übersprungen.`,
+        body: esc(snap.skipped.slice(0, 6).map((s) => `${s.symbol} (${s.reason})`).join(', ')),
       });
     }
 
+    // Am Telefon zugeklappt: die Kernaussage steht in der Zeile, die Begruendung
+    // einen Tipp entfernt. Sonst stehen vor der Rangliste drei Absaetze Text.
     box.hidden = notices.length === 0;
     box.innerHTML = notices
-      .map(
-        (n) =>
-          `<div class="notice" data-level="${n.level}"><span class="notice-icon" aria-hidden="true">${n.icon}</span><div>${n.html}</div></div>`
-      )
+      .map((n) =>
+        `<details class="notice" data-level="${n.level}"${wide.matches ? ' open' : ''}>` +
+        `<summary><span class="notice-icon" aria-hidden="true">${n.icon}</span>` +
+        `<strong>${n.title}</strong></summary>` +
+        `<p class="notice-body">${n.body}</p></details>`)
       .join('');
   }
 
   function driverChip(d) {
-    // Gleiche Zeichen wie bei der Kursveraenderung, damit Richtung ueberall
-    // identisch gelesen wird — und nie nur ueber Farbe.
     const arrow = d.value > 0.05 ? '▲' : d.value < -0.05 ? '▼' : '■';
     const cls = d.value > 0.05 ? 'up' : d.value < -0.05 ? 'down' : 'flat';
     return `<span class="driver"><span class="sign ${cls}">${arrow}</span>${esc(d.label)}</span>`;
@@ -182,24 +254,23 @@
 
   function cardMarkup(item, displayRank) {
     const marketChip = item.market === 'DE'
-      ? '<span class="chip chip-de">Deutschland</span>'
-      : '<span class="chip chip-us">USA</span>';
+      ? '<span class="chip chip-de">DE</span>'
+      : '<span class="chip chip-us">US</span>';
     const flags = [
       item.session.open ? '' : `<span class="chip chip-warn">${esc(item.session.phase)}</span>`,
-      item.stale ? '<span class="chip chip-warn">Daten veraltet</span>' : '',
+      item.stale ? '<span class="chip chip-warn">veraltet</span>' : '',
       item.demo ? '<span class="chip chip-demo">Demo</span>' : '',
-      item.meetsThreshold ? '<span class="chip" style="border-color:var(--good);color:var(--good-ink)">Schwelle erreicht</span>' : '',
-    ].join('');
+      item.meetsThreshold ? '<span class="chip chip-good">Schwelle erreicht</span>' : '',
+    ].filter(Boolean).join(' ');
 
-    // effectPp ist die Weglassprobe des Servers: Wirkung dieser einen Korrektur
-    // auf das Endergebnis, in Prozentpunkten.
     const context = (item.adjustments || [])
       .map((a) => `${esc(a.label)} ${a.effectPp >= 0 ? '+' : '−'}${esc(num(Math.abs(a.effectPp), 2))} Pp.`)
       .join(' · ');
 
     const headlines = item.news && item.news.items.length
       ? `<ul class="headlines">${item.news.items
-          .map((n) => `<li><a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${n.score > 0 ? '▲' : n.score < 0 ? '▼' : '·'} ${esc(n.title)}</a></li>`)
+          .map((n) => `<li><a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">` +
+            `${n.score > 0 ? '▲' : n.score < 0 ? '▼' : '·'} ${esc(n.title)}</a></li>`)
           .join('')}</ul>`
       : '';
 
@@ -208,8 +279,8 @@
         <div class="card-head">
           <span class="rank-badge">${displayRank}</span>
           <div class="card-title">
-            <h3>${esc(item.symbol)} ${marketChip}${flags}</h3>
-            <p>${esc(item.name)} · ${esc(item.venue)}</p>
+            <h3>${esc(item.symbol)} ${marketChip}</h3>
+            <p>${esc(item.name)} · ${esc(item.venue)}${flags ? ` ${flags}` : ''}</p>
           </div>
           <div class="price">
             <span class="value">${esc(num(item.price, item.price >= 100 ? 2 : 3))} ${esc(item.currency || '')}</span>
@@ -223,33 +294,35 @@
             <span class="prob-caption">für einen höheren Kurs in ${state.horizon} h</span>
           </div>
           <div class="meter" data-meter></div>
+          <div class="chart spark" data-spark></div>
           <p class="prob-band">
-            Glaubwürdigkeitsband ${esc(num(item.interval.low * 100, 1))}–${esc(pct(item.interval.high * 100))} ·
+            Band ${esc(num(item.interval.low * 100, 1))}–${esc(pct(item.interval.high * 100))} ·
             ${esc(item.samples.toLocaleString('de-DE'))} vergleichbare Lagen ·
             Basisquote ${esc(pct((item.baseRate || 0) * 100))} ·
             Vorteil ${esc(signed((item.edge || 0) * 100, 1).replace(' %', ' Pp.'))}
           </p>
         </div>
 
+        <details class="card-more"${wide.matches ? ' open' : ''}>
+        <summary>Kennzahlen &amp; Begründung</summary>
         <dl class="facts">
-          <div class="fact"><dt>typische Bewegung</dt><dd>${esc(signed(item.expectedMovePct, 2))}</dd></div>
+          <div class="fact"><dt>typ. Bewegung</dt><dd>${esc(signed(item.expectedMovePct, 2))}</dd></div>
           <div class="fact"><dt>Belastbarkeit</dt><dd><span class="grade" data-level="${esc(item.confidence.level)}"><span class="dot"></span>${esc(item.confidence.level)}</span></dd></div>
           <div class="fact"><dt>Signalwert</dt><dd>${esc(num(item.score, 2))}</dd></div>
           <div class="fact"><dt>RSI (14)</dt><dd>${esc(num(item.indicators.rsi, 0))}</dd></div>
           <div class="fact"><dt>Volumen</dt><dd>${item.indicators.volumeRatio ? `${esc(num(item.indicators.volumeRatio, 1))}×` : '–'}</dd></div>
-          <div class="fact"><dt>Schwankung (ATR)</dt><dd>${esc(pct(item.indicators.atrPct, 2))}</dd></div>
+          <div class="fact"><dt>ATR</dt><dd>${esc(pct(item.indicators.atrPct, 2))}</dd></div>
         </dl>
-
-        <div class="chart spark" data-spark></div>
 
         <div class="drivers">${(item.drivers || []).map(driverChip).join('')}</div>
 
-        ${context ? `<p class="card-note">Kontextkorrektur: ${context}${item.damping < 1 ? ` · Dämpfung Handelszeit ×${esc(num(item.damping, 2))}` : ''}</p>` : ''}
+        ${context ? `<p class="card-note">Kontext: ${context}${item.damping < 1 ? ` · Dämpfung ×${esc(num(item.damping, 2))}` : ''}</p>` : ''}
         ${headlines}
         <p class="card-note">
-          Quellen: ${esc((item.sources || []).join(', '))}${item.crossCheck && item.crossCheck.fresh ? ` · Zweitquelle ${esc(num(item.crossCheck.price, 2))} (${esc(num(item.crossCheck.deviationPct, 2))} % Abweichung)` : ''}
+          Quellen: ${esc((item.sources || []).join(', '))}${item.crossCheck && item.crossCheck.fresh ? ` · Zweitquelle ${esc(num(item.crossCheck.price, 2))} (${esc(num(item.crossCheck.deviationPct, 2))} % Abw.)` : ''}
           · letzte Kerze ${esc(clock(item.lastCandle))} Uhr
         </p>
+        </details>
       </article>`;
   }
 
@@ -274,45 +347,41 @@
       Charts.sparkline(sparkBox, item.spark, {
         currency: item.currency,
         label: `Kursverlauf ${item.symbol}`,
-        height: sparkBox.clientHeight || 74,
+        height: sparkBox.clientHeight || 90,
       });
     });
 
     const snap = state.snapshot;
-    $('rankSub').textContent =
-      `Die ${items.length} stärksten Kandidaten ${state.market === 'alle' ? 'aus beiden Märkten' : state.market === 'DE' ? 'aus Deutschland' : 'aus den USA'} ` +
-      `für die kommenden ${snap.config.horizonHours} Stunden (${snap.config.horizonBars} Balken à ${snap.config.interval}).`;
+    const where = state.market === 'alle' ? 'beide Märkte' : state.market === 'DE' ? 'Deutschland' : 'USA';
+    $('rankSub').textContent = wide.matches
+      ? `Die ${items.length} stärksten Kandidaten (${where}) für die kommenden ` +
+        `${snap.config.horizonHours} Stunden — ${snap.config.horizonBars} Balken à ${snap.config.interval}.`
+      : `${items.length} Titel · ${where} · ${snap.config.horizonHours} h`;
   }
 
   function renderCalibration() {
     const snap = state.snapshot;
-    if (!snap) return;
     Charts.calibration($('calChart'), snap.calibration.buckets, { baseRate: snap.calibration.baseRate });
     $('calStats').innerHTML = [
-      ['Beobachtungen gesamt', snap.calibration.pooledSamples.toLocaleString('de-DE')],
+      ['Beobachtungen', snap.calibration.pooledSamples.toLocaleString('de-DE')],
       ['Basisquote', pct((snap.calibration.baseRate || 0) * 100)],
       ['mittlere Bewegung', signed(snap.calibration.meanRetPct, 2)],
-      ['Prognosehorizont', `${snap.config.horizonBars} Balken`],
-      ['Reibung abgezogen', pct(snap.config.friction * 100, 3)],
+      ['Horizont', `${snap.config.horizonBars} Balken`],
     ]
       .map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
       .join('');
     $('calSub').textContent =
       `Grundlage jeder Prozentzahl: ${snap.calibration.pooledSamples.toLocaleString('de-DE')} ausgewertete ` +
-      'Vergangenheitslagen des gesamten Universums. Blasse Balken haben zu wenige Beobachtungen, ' +
-      'um für sich allein belastbar zu sein.';
+      'Vergangenheitslagen. Blasse Balken haben zu wenige Beobachtungen. Balken antippen für Details.';
   }
 
   function renderSources() {
-    const snap = state.snapshot;
     const labels = { ok: 'erreichbar', degraded: 'teilweise gestört', down: 'nicht erreichbar' };
-    $('sources').innerHTML = (snap.sources || [])
-      .map(
-        (s) =>
-          `<li class="source" data-status="${esc(s.status)}"><span class="dot"></span>` +
-          `<span class="name">${esc(s.name)}</span>` +
-          `<span class="detail">${esc(labels[s.status])}${s.count ? ` · ${s.count} Abrufe` : ''}${s.detail ? ` · ${esc(s.detail)}` : ''}</span></li>`
-      )
+    $('sources').innerHTML = (state.snapshot.sources || [])
+      .map((s) =>
+        `<li class="source" data-status="${esc(s.status)}"><span class="dot"></span>` +
+        `<span class="name">${esc(s.name)}</span>` +
+        `<span class="detail">${esc(labels[s.status])}${s.count ? ` · ${s.count} Abrufe` : ''}${s.detail ? ` · ${esc(s.detail)}` : ''}</span></li>`)
       .join('');
   }
 
@@ -322,21 +391,49 @@
     confidence: (a, b) => (a.confidence.points || 0) - (b.confidence.points || 0),
   };
 
-  function renderWatchlist() {
-    const snap = state.snapshot;
-    let rows = snap.watchlist.slice();
+  function sortedRows() {
+    let rows = state.snapshot.watchlist.slice();
     if (state.market !== 'alle') rows = rows.filter((r) => r.market === state.market);
-
     const { key, dir } = state.sort;
     const sorter = SORTERS[key] || ((a, b) => (a[key] ?? -Infinity) - (b[key] ?? -Infinity));
-    rows.sort((a, b) => (dir === 'asc' ? sorter(a, b) : -sorter(a, b)));
+    return rows.sort((a, b) => (dir === 'asc' ? sorter(a, b) : -sorter(a, b)));
+  }
 
+  /** Am Telefon: eine Zeile je Titel, alles Wesentliche ohne Querscrollen. */
+  function renderRows(rows) {
+    $('watchRows').innerHTML = rows
+      .map((r) => {
+        const met = r.probability >= state.threshold;
+        return `<div class="row" data-met="${met}">
+          <span class="row-rank">${r.rank}</span>
+          <span class="row-main">
+            <span class="row-sym">${esc(r.symbol)}
+              <span class="chip ${r.market === 'DE' ? 'chip-de' : 'chip-us'}">${r.market}</span>
+              ${r.demo ? '<span class="chip chip-demo">Demo</span>' : ''}
+              ${met ? '<span class="chip chip-good">✓</span>' : ''}
+            </span>
+            <span class="row-sub">${esc(r.name)} · ${esc(num(r.price, 2))} ${esc(r.currency || '')} ·
+              <span class="grade" data-level="${esc(r.confidence.level)}"><span class="dot"></span>${esc(r.confidence.level)}</span>
+            </span>
+          </span>
+          <span class="row-right">
+            <span class="row-prob">${esc(pct(r.probability * 100))}</span>
+            ${deltaMarkup(r.changePct, 'row-delta')}
+          </span>
+          <span class="row-bar"><span style="width:${Math.max(2, Math.round(r.probability * 100))}%"></span></span>
+        </div>`;
+      })
+      .join('');
+  }
+
+  /** Am Schreibtisch: die volle Tabelle mit allen Kennzahlen. */
+  function renderTable(rows) {
     $('watchlistBody').innerHTML = rows
       .map((r) => {
         const met = r.probability >= state.threshold;
         return `<tr>
           <td class="num">${r.rank}</td>
-          <td><span class="sym">${esc(r.symbol)}</span> <span class="name">${esc(r.name)}</span>${met ? ' <span class="chip" style="border-color:var(--good);color:var(--good-ink)">✓</span>' : ''}${r.demo ? ' <span class="chip chip-demo">Demo</span>' : ''}</td>
+          <td><span class="sym">${esc(r.symbol)}</span> <span class="name">${esc(r.name)}</span>${met ? ' <span class="chip chip-good">✓</span>' : ''}${r.demo ? ' <span class="chip chip-demo">Demo</span>' : ''}</td>
           <td>${r.market === 'DE' ? 'Deutschland' : 'USA'}</td>
           <td class="num">${esc(num(r.price, 2))} ${esc(r.currency || '')}</td>
           <td class="num">${deltaMarkup(r.changePct)}</td>
@@ -351,19 +448,24 @@
       .join('');
 
     document.querySelectorAll('#watchlist th').forEach((th) => {
-      if (th.dataset.sort === key) th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
-      else th.removeAttribute('aria-sort');
+      if (th.dataset.sort === state.sort.key) {
+        th.setAttribute('aria-sort', state.sort.dir === 'asc' ? 'ascending' : 'descending');
+      } else th.removeAttribute('aria-sort');
     });
   }
 
-  function renderMeta() {
-    const snap = state.snapshot;
-    $('updatedAt').textContent = `${clock(snap.generatedAt)} Uhr`;
-    $('colophon').textContent =
-      `Durchlauf ${snap.cycleMs} ms · ${snap.watchlist.length} Titel · Raster ${snap.config.interval} · ` +
-      `Historie ${snap.config.range} · Aktualisierung alle ${snap.refreshSeconds || 60} s · ` +
-      `Schwelle serverseitig ${Math.round(snap.config.threshold * 100)} %, Anzeige ${Math.round(state.threshold * 100)} %.`;
+  function renderWatchlist() {
+    const rows = sortedRows();
+    // Nur die sichtbare Fassung zeichnen — die andere waere verschwendete Arbeit.
+    if (wide.matches) renderTable(rows);
+    else renderRows(rows);
+    $('listSub').textContent = wide.matches
+      ? 'Alle geprüften Titel, absteigend nach Wahrscheinlichkeit. Spalten sind sortierbar.'
+      : `Alle ${rows.length} geprüften Titel, absteigend nach Wahrscheinlichkeit.`;
+  }
 
+  function startCountdown() {
+    const snap = state.snapshot;
     if (state.countdownTimer) clearInterval(state.countdownTimer);
     const tick = () => {
       if (!snap.nextRefreshAt) {
@@ -371,10 +473,21 @@
         return;
       }
       const left = Math.max(0, Math.round((snap.nextRefreshAt - Date.now()) / 1000));
-      $('countdown').textContent = left === 0 ? 'jetzt …' : `in ${left} s`;
+      $('countdown').textContent = left === 0 ? 'gleich …' : `neu in ${left} s`;
     };
     tick();
-    state.countdownTimer = setInterval(tick, 1000);
+    // Im Hintergrund nicht weiterticken — das kostet am Telefon nur Akku.
+    state.countdownTimer = setInterval(() => { if (!document.hidden) tick(); }, 1000);
+  }
+
+  function renderMeta() {
+    const snap = state.snapshot;
+    $('updatedAt').textContent = `${clock(snap.generatedAt)}`;
+    $('colophon').textContent =
+      `Durchlauf ${snap.cycleMs} ms · ${snap.watchlist.length} Titel · Raster ${snap.config.interval} · ` +
+      `Historie ${snap.config.range} · Aktualisierung alle ${snap.refreshSeconds || 60} s · ` +
+      `Schwelle serverseitig ${Math.round(snap.config.threshold * 100)} %, Anzeige ${Math.round(state.threshold * 100)} %.`;
+    startCountdown();
   }
 
   function render() {
@@ -394,7 +507,7 @@
     const group = $(id);
     group.addEventListener('click', (event) => {
       const button = event.target.closest('button');
-      if (!button) return;
+      if (!button || button.getAttribute('aria-checked') === 'true') return;
       group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b === button)));
       onChange(button.dataset.value);
     });
@@ -412,16 +525,22 @@
     render();
   });
 
+  $('sheetBtn').addEventListener('click', () => {
+    const sheet = $('sheet');
+    const open = sheet.hidden;
+    sheet.hidden = !open;
+    $('sheetBtn').setAttribute('aria-expanded', String(open));
+  });
+
   $('threshold').addEventListener('input', (event) => {
     state.threshold = Number(event.target.value) / 100;
-    $('thresholdOut').textContent = `${event.target.value} %`;
+    const text = `${event.target.value} %`;
+    $('thresholdOut').textContent = text;
+    $('thresholdPill').textContent = text;
     if (state.snapshot) render();
   });
 
-  $('refreshBtn').addEventListener('click', async () => {
-    setConnection('busy', 'aktualisiert …');
-    await fetch('/api/refresh', { method: 'POST' }).catch(() => {});
-  });
+  $('refreshBtn').addEventListener('click', triggerRefresh);
 
   $('themeBtn').addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme');
@@ -431,14 +550,14 @@
     try {
       if (next) localStorage.setItem('theme', next);
       else localStorage.removeItem('theme');
-    } catch { /* privater Modus: Einstellung gilt dann nur fuer diese Sitzung */ }
+    } catch { /* privater Modus: die Wahl gilt dann nur fuer diese Sitzung */ }
     if (state.snapshot) render();
   });
 
   try {
     const saved = localStorage.getItem('theme');
     if (saved) document.documentElement.setAttribute('data-theme', saved);
-  } catch { /* ohne gespeicherte Einstellung gilt die des Systems */ }
+  } catch { /* ohne gespeicherte Wahl gilt die des Systems */ }
 
   $('watchlist').addEventListener('click', (event) => {
     const th = event.target.closest('th');
@@ -450,6 +569,41 @@
     renderWatchlist();
   });
 
+  /*
+   * Die Bedienleiste liegt am Telefon fest ueber dem Inhalt. Wie hoch sie ist,
+   * haengt davon ab, wie viele Gruppen umbrechen — das laesst sich nicht raten,
+   * also wird es gemessen und als Freiraum unter den Rumpf geschrieben.
+   */
+  const toolbar = document.querySelector('.toolbar');
+  const syncToolbarHeight = () => {
+    const fixed = getComputedStyle(toolbar).position === 'fixed';
+    document.documentElement.style.setProperty(
+      '--toolbar-h',
+      fixed ? `${Math.ceil(toolbar.getBoundingClientRect().height)}px` : '0px'
+    );
+  };
+  if (window.ResizeObserver) new ResizeObserver(syncToolbarHeight).observe(toolbar);
+  window.addEventListener('orientationchange', () => setTimeout(syncToolbarHeight, 120));
+  syncToolbarHeight();
+
+  /*
+   * Am Telefon ist Bildschirmflaeche knapp, also ist Erklaerendes zugeklappt.
+   * Am Schreibtisch ist sie es nicht — dort steht alles offen, ohne dass man
+   * erst suchen muss.
+   */
+  function syncDisclosures() {
+    document.querySelectorAll('.method-box').forEach((box) => {
+      box.open = wide.matches;
+    });
+  }
+  syncDisclosures();
+
+  // Wechsel zwischen Zeilen- und Tabellenfassung, etwa beim Drehen des Geraets.
+  wide.addEventListener('change', () => {
+    syncDisclosures();
+    if (state.snapshot) render();
+  });
+
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
@@ -458,7 +612,7 @@
         renderRanking();
         renderCalibration();
       }
-    }, 180);
+    }, 200);
   });
 
   $('ranking').innerHTML = '<div class="panel empty">Erster Durchlauf läuft — die Portale werden abgefragt …</div>';

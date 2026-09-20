@@ -2,73 +2,54 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
+<!-- viewport-fit=cover: die Seite reicht unter Dynamic Island und Home-Indikator;
+     die Abstände holt das Stylesheet über env(safe-area-inset-*) zurück.
+     Kein user-scalable=no — Zoom bleibt erlaubt. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Aktien-Kurzfristprognose</title>
-<meta name="description" content="Rangliste kurzfristiger Aufwaertswahrscheinlichkeiten fuer deutsche und amerikanische Aktien, empirisch kalibriert.">
+<meta name="description" content="Rangliste kurzfristiger Aufwärtswahrscheinlichkeiten für deutsche und amerikanische Aktien, empirisch kalibriert.">
+
+<!-- Zum Home-Bildschirm hinzufügen: läuft dann ohne Safari-Leisten als eigene App. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Aktien">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="stylesheet" href="dashboard.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>📈</text></svg>">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">▲</span>
-    <div>
-      <h1>Aktien-Kurzfristprognose</h1>
-      <p class="brand-sub">Deutschland &amp; USA · empirisch kalibrierte Aufwärtswahrscheinlichkeit</p>
+<div class="pull" id="pull" aria-hidden="true"><span class="pull-spinner"></span><span id="pullText">zum Aktualisieren ziehen</span></div>
+
+<header class="appbar">
+  <div class="appbar-main">
+    <h1>Aktien-Kurzfristprognose</h1>
+    <div class="appbar-actions">
+      <span class="live" id="live">
+        <span class="live-dot" id="liveDot" aria-hidden="true"></span>
+        <span id="liveText">verbinde …</span>
+      </span>
+      <button type="button" class="icon-btn" id="themeBtn" aria-label="Helligkeit umschalten">◐</button>
     </div>
   </div>
-
-  <div class="topbar-right">
-    <div class="clocks" id="clocks" aria-label="Handelszeiten"></div>
-    <div class="live" id="live">
-      <span class="live-dot" id="liveDot" aria-hidden="true"></span>
-      <span id="liveText">verbinde …</span>
-    </div>
-    <button type="button" class="btn" id="themeBtn" aria-label="Helligkeit umschalten">◐</button>
-    <button type="button" class="btn btn-primary" id="refreshBtn">Jetzt aktualisieren</button>
+  <div class="appbar-meta">
+    <span class="clocks" id="clocks" aria-label="Handelszeiten"></span>
+    <span class="stamp">Stand <b id="updatedAt">–</b> · <span id="countdown">–</span></span>
   </div>
 </header>
 
-<section class="controls" aria-label="Einstellungen">
-  <div class="control">
-    <label for="horizon">Prognosehorizont</label>
-    <div class="segmented" id="horizon" role="radiogroup" aria-label="Prognosehorizont">
-      <button type="button" role="radio" data-value="1">1 h</button>
-      <button type="button" role="radio" data-value="2">2 h</button>
-      <button type="button" role="radio" data-value="3" aria-checked="true">3 h</button>
-      <button type="button" role="radio" data-value="4">4 h</button>
-    </div>
-  </div>
-
-  <div class="control">
-    <label for="threshold">Schwelle <output id="thresholdOut">80 %</output></label>
-    <input type="range" id="threshold" min="50" max="95" step="1" value="80">
-  </div>
-
-  <div class="control">
-    <label for="markets">Märkte</label>
-    <div class="segmented" id="markets" role="radiogroup" aria-label="Märkte">
-      <button type="button" role="radio" data-value="alle" aria-checked="true">beide</button>
-      <button type="button" role="radio" data-value="DE">Deutschland</button>
-      <button type="button" role="radio" data-value="US">USA</button>
-    </div>
-  </div>
-
-  <div class="control control-meta">
-    <span class="meta-label">Stand</span>
-    <span class="meta-value" id="updatedAt">–</span>
-    <span class="meta-label">nächste Aktualisierung</span>
-    <span class="meta-value" id="countdown">–</span>
-  </div>
-</section>
-
-<div id="notices" class="notices" hidden></div>
-
 <main>
+  <div id="notices" class="notices" hidden></div>
+
   <section aria-labelledby="rankHead">
     <div class="section-head">
-      <h2 id="rankHead">Rangliste — höchste Aufwärtswahrscheinlichkeit</h2>
+      <h2 id="rankHead">Rangliste</h2>
       <p class="section-sub" id="rankSub">Die fünf stärksten Kandidaten zum Beobachtungszeitpunkt.</p>
     </div>
     <div class="ranking" id="ranking"></div>
@@ -77,10 +58,10 @@
   <section class="split">
     <article class="panel" aria-labelledby="calHead">
       <div class="section-head">
-        <h2 id="calHead">Kalibrierung — gemessene Trefferquote je Signalstärke</h2>
+        <h2 id="calHead">Kalibrierung</h2>
         <p class="section-sub" id="calSub">
-          Grundlage jeder Prozentzahl auf dieser Seite: wie oft ein Signal dieser Stärke
-          in der Vergangenheit tatsächlich zu einem höheren Kurs führte.
+          Grundlage jeder Prozentzahl: wie oft ein Signal dieser Stärke in der
+          Vergangenheit tatsächlich zu einem höheren Kurs führte.
         </p>
       </div>
       <div class="chart" id="calChart"></div>
@@ -89,29 +70,36 @@
 
     <article class="panel" aria-labelledby="srcHead">
       <div class="section-head">
-        <h2 id="srcHead">Datenquellen &amp; Verfahren</h2>
-        <p class="section-sub">Woher die Zahlen kommen und wie sie entstehen.</p>
+        <h2 id="srcHead">Quellen &amp; Verfahren</h2>
       </div>
       <ul class="sources" id="sources"></ul>
-      <ol class="method">
-        <li>Intraday-Kerzen je Titel von den Portalen abrufen.</li>
-        <li>Rund ein Dutzend Chart-Merkmale berechnen — rein kausal, ohne Blick nach vorn.</li>
-        <li>Über die gesamte Historie nachzählen, wie oft dieselbe Signallage zu einem
-            höheren Kurs führte — nach Abzug von Spread und Gebühren.</li>
-        <li>Kleine Stichproben gegen Universum und Prior schrumpfen (Beta-Posterior),
-            statt Zufallstreffer als Gewissheit auszuweisen.</li>
-        <li>Marktlage, Schlagzeilen, Quellenabweichung und Handelszeit aufschlagen —
-            jeder Beitrag gedeckelt und einzeln ausgewiesen.</li>
-      </ol>
+      <details class="method-box">
+        <summary>Wie die Zahl entsteht</summary>
+        <ol class="method">
+          <li>Intraday-Kerzen je Titel von den Portalen abrufen.</li>
+          <li>Rund ein Dutzend Chart-Merkmale berechnen — rein kausal, ohne Blick nach vorn.</li>
+          <li>Über die gesamte Historie nachzählen, wie oft dieselbe Signallage zu einem
+              höheren Kurs führte — nach Abzug von Spread und Gebühren.</li>
+          <li>Kleine Stichproben gegen Universum und Prior schrumpfen (Beta-Posterior),
+              statt Zufallstreffer als Gewissheit auszuweisen.</li>
+          <li>Marktlage, Schlagzeilen, Quellenabweichung und Handelszeit aufschlagen —
+              jeder Beitrag gedeckelt und einzeln ausgewiesen.</li>
+        </ol>
+      </details>
     </article>
   </section>
 
   <section aria-labelledby="listHead">
     <div class="section-head">
       <h2 id="listHead">Beobachtungsliste</h2>
-      <p class="section-sub">Alle geprüften Titel, absteigend nach Wahrscheinlichkeit. Spalten sind sortierbar.</p>
+      <p class="section-sub" id="listSub">Alle geprüften Titel, absteigend nach Wahrscheinlichkeit.</p>
     </div>
-    <div class="table-wrap">
+
+    <!-- Am Telefon eine Liste mit Zeilen, am Schreibtisch die volle Tabelle.
+         Gerendert wird immer nur eine von beiden. -->
+    <div class="rows" id="watchRows"></div>
+
+    <div class="table-wrap" id="tableWrap">
       <table class="watchlist" id="watchlist">
         <thead>
           <tr>
@@ -132,18 +120,64 @@
       </table>
     </div>
   </section>
+
+  <footer class="footer">
+    <p class="disclaimer">
+      <strong>Keine Anlageberatung.</strong> Die ausgewiesenen Prozentwerte sind gemessene
+      Trefferquoten vergangener, vergleichbarer Chartlagen — keine Zusage über die Zukunft.
+      Kurzfristige Kursbewegungen sind überwiegend Rauschen; belastbare Werte liegen typisch
+      zwischen 50 % und 60 %. Wer eine dauerhafte Quote über 80 % sieht, sieht einen Fehler,
+      keine Gelegenheit. Kurse können verzögert sein.
+    </p>
+    <p class="colophon" id="colophon"></p>
+  </footer>
 </main>
 
-<footer class="footer">
-  <p class="disclaimer">
-    <strong>Keine Anlageberatung.</strong> Die ausgewiesenen Prozentwerte sind gemessene
-    Trefferquoten vergangener, vergleichbarer Chartlagen — keine Zusage über die Zukunft.
-    Kurzfristige Kursbewegungen sind überwiegend Rauschen; belastbare Werte liegen typisch
-    zwischen 50 % und 60 %. Wer eine dauerhafte Quote über 80 % sieht, sieht einen Fehler,
-    keine Gelegenheit. Kurse können verzögert sein.
-  </p>
-  <p class="colophon" id="colophon"></p>
-</footer>
+<!-- Bedienleiste: am Telefon unten in der Daumenzone, ab Tablet oben. -->
+<nav class="toolbar" aria-label="Einstellungen">
+  <div class="toolbar-sheet" id="sheet" hidden>
+    <label class="sheet-row" for="threshold">
+      <span>Schwelle</span>
+      <output id="thresholdOut">80 %</output>
+    </label>
+    <input type="range" id="threshold" min="50" max="95" step="1" value="80"
+           aria-label="Schwelle in Prozent">
+    <p class="sheet-note">
+      Ab diesem Wert gilt ein Titel als Treffer. Über 80 % wird in aller Regel
+      nicht erreicht — kurzfristige Kursbewegung ist überwiegend Rauschen.
+    </p>
+  </div>
+
+  <div class="toolbar-bar">
+    <div class="toolbar-group">
+      <span class="toolbar-label">Horizont</span>
+      <div class="segmented" id="horizon" role="radiogroup" aria-label="Prognosehorizont">
+        <button type="button" role="radio" data-value="1">1 h</button>
+        <button type="button" role="radio" data-value="2">2 h</button>
+        <button type="button" role="radio" data-value="3" aria-checked="true">3 h</button>
+        <button type="button" role="radio" data-value="4">4 h</button>
+      </div>
+    </div>
+
+    <div class="toolbar-group">
+      <span class="toolbar-label">Märkte</span>
+      <div class="segmented" id="markets" role="radiogroup" aria-label="Märkte">
+        <button type="button" role="radio" data-value="alle" aria-checked="true">beide</button>
+        <button type="button" role="radio" data-value="DE">DE</button>
+        <button type="button" role="radio" data-value="US">US</button>
+      </div>
+    </div>
+
+    <div class="toolbar-group toolbar-end">
+      <button type="button" class="pill" id="sheetBtn" aria-expanded="false" aria-controls="sheet">
+        Schwelle <b id="thresholdPill">80 %</b>
+      </button>
+      <button type="button" class="pill pill-primary" id="refreshBtn" aria-label="Jetzt aktualisieren">
+        <span aria-hidden="true">↻</span><span class="pill-text">Aktualisieren</span>
+      </button>
+    </div>
+  </div>
+</nav>
 
 <div class="tooltip" id="tooltip" role="status" aria-live="polite" hidden></div>
 
