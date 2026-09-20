@@ -1,0 +1,60 @@
+/*
+ * Stile der Anmeldeseite.
+ *
+ * Ausgelagert statt eingebettet: so kommt die Content-Security-Policy ohne
+ * 'unsafe-inline' aus — die Seite darf dann gar keinen eingebetteten Code
+ * ausfuehren, auch keinen eingeschleusten.
+ */
+
+.login-wrap {
+  min-height: 100dvh;
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 24px) var(--gutter-r)
+           calc(env(safe-area-inset-bottom) + 24px) var(--gutter);
+}
+.login {
+  width: 100%; max-width: 380px;
+  display: flex; flex-direction: column; gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: var(--shadow);
+}
+.login-brand { display: flex; align-items: center; gap: 12px; }
+.login-brand img { width: 40px; height: 40px; border-radius: 11px; }
+.login-brand h1 { font-size: 1.05rem; }
+.login-brand p { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-secondary); }
+.login label { font-size: 0.8rem; color: var(--text-secondary); display: block; margin-bottom: 6px; }
+.login input[type="password"] {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 12px;
+  font-size: 16px;                  /* unter 16px zoomt iOS beim Tippen hinein */
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+}
+.login button {
+  min-height: var(--tap);
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--series-1);
+  color: #fff;
+  font-size: 0.95rem; font-weight: 600;
+  cursor: pointer;
+}
+.login button:active { transform: scale(0.98); }
+.login-error {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 0.82rem;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--critical);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.login-note { font-size: 0.74rem; color: var(--text-muted); margin: 0; }

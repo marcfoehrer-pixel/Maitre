@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Anmelden · Aktien-Kurzfristprognose</title>
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Aktien">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="stylesheet" href="dashboard.css">
+<link rel="stylesheet" href="login.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login" method="post" action="/login">
+    <div class="login-brand">
+      <img src="icon-192.png" alt="">
+      <div>
+        <h1>Aktien-Kurzfristprognose</h1>
+        <p>Zugang nur mit Kennwort</p>
+      </div>
+    </div>
+
+    <div class="login-error" id="error" hidden>
+      <span aria-hidden="true">⚠</span><span id="errorText"></span>
+    </div>
+
+    <!-- Der verborgene Benutzername hilft dem iOS-Schluesselbund, das Kennwort
+         sauber zu sichern und spaeter anzubieten. -->
+    <input type="text" name="username" value="Dashboard" autocomplete="username"
+           hidden readonly aria-hidden="true" tabindex="-1">
+
+    <div>
+      <label for="password">Kennwort</label>
+      <input type="password" id="password" name="password" required
+             autocomplete="current-password" autocapitalize="off"
+             autocorrect="off" spellcheck="false" enterkeyhint="go">
+    </div>
+
+    <button type="submit">Anmelden</button>
+
+    <p class="login-note">
+      Die Anmeldung bleibt 30 Tage bestehen. Das Kennwort steht in der Ausgabe
+      des Servers beim Start.
+    </p>
+  </form>
+</div>
+
+<script src="login.js"></script>
+</body>
+</html>

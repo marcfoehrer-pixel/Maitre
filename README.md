@@ -1,3 +1,15 @@
+# Maitre
+
+Zwei eigenständige Projekte in einem Repository, beide ohne Framework und ohne
+Abhängigkeiten.
+
+| Projekt | Start | Dokumentation |
+| --- | --- | --- |
+| **Tetris** für den Browser | `index.html` öffnen | weiter unten |
+| **Aktien-Kurzfristprognose** — Dashboard fürs iPhone mit Live-Aktualisierung, Rangliste nach empirisch kalibrierter Aufwärtswahrscheinlichkeit, deutsche und amerikanische Titel; kennwortgeschützt und auch von unterwegs erreichbar | Doppelklick auf `Dashboard starten.command` (macOS) bzw. `.bat` (Windows), dann die angezeigte WLAN-Adresse am iPhone öffnen | [`stocks/README.md`](stocks/README.md) |
+
+---
+
 # Tetris
 
 Ein vollständiges Tetris für den Browser — ohne Framework, ohne Build-Schritt.
@@ -80,7 +92,8 @@ für einen USB-Stick oder zum Offline-Spielen.
 ## Tests
 
 ```bash
-npm test
+npm test            # beide Projekte
+npm run test:tetris # nur Tetris
 ```
 
 26 Tests decken Bewegung und Kollision, Wall Kicks, 7-Bag, Hold, Ghost-Piece,

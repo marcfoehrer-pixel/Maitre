@@ -1,17 +1,25 @@
 {
   "name": "tetris",
   "version": "1.0.0",
-  "description": "Tetris im Browser - SRS-Rotation, Hold, Ghost-Piece, Touch-Steuerung",
+  "description": "Tetris im Browser + Aktien-Dashboard mit empirisch kalibrierter Kurzfristprognose",
   "private": true,
   "scripts": {
-    "test": "node --test test/engine.test.js",
+    "test": "node --test test/engine.test.js stocks/test/*.test.js",
+    "test:tetris": "node --test test/engine.test.js",
+    "test:stocks": "node --test stocks/test/*.test.js",
     "start": "npx --yes serve .",
-    "build": "node tools/build-single-file.js"
+    "build": "node tools/build-single-file.js",
+    "stocks": "node stocks/server.js",
+    "stocks:demo": "node stocks/server.js --offline --no-auth",
+    "stocks:public": "node stocks/server.js --public"
   },
   "keywords": [
     "tetris",
     "game",
-    "canvas"
+    "canvas",
+    "aktien",
+    "dashboard",
+    "technische-analyse"
   ],
   "license": "MIT"
 }

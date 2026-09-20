@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!-- Quelle der App-Symbole. Die PNG-Fassungen werden daraus erzeugt;
+       iOS akzeptiert fuer apple-touch-icon kein SVG. -->
+  <rect width="180" height="180" fill="#1c5cab"/>
+  <path d="M28 124 L66 86 L92 108 L152 48" fill="none" stroke="#ffffff"
+        stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M118 48 L152 48 L152 82" fill="none" stroke="#ffffff"
+        stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="28" cy="124" r="8" fill="#9ec5f4"/>
+</svg>
