@@ -49,6 +49,39 @@ durchklicken. Einmalig. (Der Starter in Schritt 3 sagt Ihnen, ob es fehlt, und
 >   für Node.js: **Zulassen** — sonst läuft der Server zwar, aber das iPhone
 >   kommt nicht durch.
 > - **macOS:** statt Doppelklick **Rechtsklick → Öffnen → Öffnen**.
+>
+> Meldet Windows dagegen **„Smart App Control hat eine Datei blockiert"**,
+> hilft kein Bestätigen — siehe den folgenden Abschnitt.
+
+### Wenn Smart App Control blockiert
+
+Smart App Control (Windows 11) lässt unsignierte Skripte grundsätzlich nicht
+zu und bietet **kein** „Trotzdem ausführen". Der Starter `.bat` ist damit auf
+diesem Rechner nicht verwendbar.
+
+**Schalten Sie Smart App Control nicht ab.** Es lässt sich anschließend nur
+durch eine Neuinstallation von Windows wieder einschalten — ein hoher Preis
+für ein Dashboard.
+
+Stattdessen den Server direkt über Node starten. `node.exe` ist signiert und
+wird von Smart App Control akzeptiert:
+
+1. Den entpackten Ordner im Explorer öffnen.
+2. Rechtsklick auf eine freie Stelle im Ordner → **„In Terminal öffnen"**
+   (Windows 10: `Umschalt` + Rechtsklick → *PowerShell-Fenster hier öffnen*).
+3. Eintippen und `Enter`:
+
+   ```
+   node stocks\server.js
+   ```
+
+Mehr ist es nicht — kein `npm install`, keine Umgebungsvariablen. Adresse und
+Kennwort erscheinen wie gewohnt im Fenster.
+
+Fehlt Node, meldet das Fenster `node ... nicht gefunden`: dann einmalig von
+[nodejs.org](https://nodejs.org/de/download) die **LTS**-Fassung installieren
+(der Installer ist signiert und wird akzeptiert), Fenster schließen, Schritt 2
+wiederholen.
 
 Es öffnet sich ein Fenster, und nach einem Moment steht dort das Wesentliche:
 
