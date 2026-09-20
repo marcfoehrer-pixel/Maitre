@@ -641,6 +641,14 @@ server.listen(config.port, config.host, () => {
     parts.push('  Dann startet es wie eine App, ohne Safari-Leisten.');
     parts.push('');
     parts.push('  iPhone und Rechner muessen im selben WLAN sein.');
+    // Unter Windows fragt die Firewall beim ersten Start nach. Wird das
+    // weggeklickt, laeuft der Server zwar, ist vom Telefon aber unerreichbar —
+    // und man sucht den Fehler dann an der voellig falschen Stelle.
+    if (process.platform === 'win32') {
+      parts.push('');
+      parts.push('  WICHTIG (Windows): Fragt die Firewall nach Netzwerkzugriff fuer');
+      parts.push('  Node.js, bitte ZULASSEN — sonst kommt das iPhone nicht durch.');
+    }
   }
   parts.push('  Dieses Fenster offen lassen — es ist der Server. Beenden: Strg + C.');
   parts.push('');

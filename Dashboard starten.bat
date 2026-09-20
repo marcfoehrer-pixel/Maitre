@@ -1,4 +1,5 @@
 @echo off
+title Aktien-Dashboard
 REM
 REM Doppelklick-Starter fuer Windows.
 REM
@@ -28,5 +29,10 @@ if errorlevel 1 (
 
 echo Kurse werden abgerufen, das dauert einen Moment ...
 echo.
+echo Falls Windows nach Netzwerkzugriff fuer Node.js fragt: ZULASSEN.
+echo Sonst kann das iPhone den Server nicht erreichen.
+echo.
 node stocks\server.js %*
+echo.
+echo Der Server wurde beendet.
 pause

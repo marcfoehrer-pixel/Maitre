@@ -26,8 +26,9 @@ npm run test:stocks     # 78 Tests
 Auf dem iPhone läuft kein Node — der Server steht auf Ihrem Rechner, das
 Telefon ruft ihn im WLAN auf. Ohne Terminal, in vier Schritten:
 
-**1. Projekt laden.** [Als ZIP herunterladen](https://github.com/marcfoehrer-pixel/Maitre/archive/refs/heads/claude/stock-forecast-dashboard-lmn641.zip)
-und die Datei doppelklicken — sie entpackt sich in einen Ordner.
+**1. Projekt laden.** [Als ZIP herunterladen](https://github.com/marcfoehrer-pixel/Maitre/archive/refs/heads/claude/stock-forecast-dashboard-lmn641.zip).
+Die Datei dann **entpacken** — unter Windows Rechtsklick → *Alle extrahieren*,
+am Mac genügt ein Doppelklick. Direkt aus der ZIP-Datei heraus startet es nicht.
 
 **2. Node.js installieren**, falls noch nicht vorhanden: auf
 [nodejs.org](https://nodejs.org/de/download) die **LTS**-Fassung laden und
@@ -41,9 +42,13 @@ durchklicken. Einmalig. (Der Starter in Schritt 3 sagt Ihnen, ob es fehlt, und
 | macOS | `Dashboard starten.command` |
 | Windows | `Dashboard starten.bat` |
 
-> **macOS beim ersten Mal:** Ein Doppelklick auf eine geladene Datei wird
-> geblockt. Stattdessen **Rechtsklick → Öffnen → Öffnen**. Danach genügt der
-> Doppelklick.
+>  **Beim ersten Mal blockt das Betriebssystem geladene Dateien:**
+>
+> - **Windows:** „Der Computer wurde geschützt" → **Weitere Informationen** →
+>   **Trotzdem ausführen**. Fragt danach die **Firewall** nach Netzwerkzugriff
+>   für Node.js: **Zulassen** — sonst läuft der Server zwar, aber das iPhone
+>   kommt nicht durch.
+> - **macOS:** statt Doppelklick **Rechtsklick → Öffnen → Öffnen**.
 
 Es öffnet sich ein Fenster, und nach einem Moment steht dort das Wesentliche:
 
