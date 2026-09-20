@@ -31,7 +31,9 @@ npx serve .
 | `Enter` | neues Spiel |
 
 Am Touchscreen: wischen bewegt, tippen dreht, nach unten wischen wirft ab.
-Zusätzlich gibt es eine Schaltflächen-Leiste.
+Zusätzlich gibt es eine Tastenleiste; Halten von ◀ ▶ ▼ wiederholt die Aktion.
+Das eingeblendete Overlay ist antippbar — Starten, Pausieren und Neustart
+funktionieren damit ganz ohne Tastatur.
 
 ## Was drin ist
 
@@ -59,11 +61,21 @@ src/engine.js       Spiellogik — ohne DOM, in Node testbar
 src/renderer.js     Zeichnen auf Canvas
 src/main.js         Spielschleife, Tastatur- und Touch-Steuerung
 test/engine.test.js Tests der Spiellogik
+tools/              Build zur Einzeldatei
 ```
 
 Die Logik in `src/engine.js` kennt weder Canvas noch Tastatur. Sie läuft
 deshalb direkt in Node und ist vollständig testbar — das Rendering lässt sich
 austauschen, ohne die Spielregeln anzufassen.
+
+## Einzeldatei bauen
+
+```bash
+npm run build      # -> dist/tetris.html
+```
+
+Fasst HTML, CSS und Skripte in eine einzige Datei zusammen — zum Verschicken,
+für einen USB-Stick oder zum Offline-Spielen.
 
 ## Tests
 

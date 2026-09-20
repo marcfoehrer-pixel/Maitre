@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "test": "node --test test/engine.test.js",
-    "start": "npx --yes serve ."
+    "start": "npx --yes serve .",
+    "build": "node tools/build-single-file.js"
   },
   "keywords": [
     "tetris",
