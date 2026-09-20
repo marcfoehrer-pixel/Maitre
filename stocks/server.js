@@ -107,10 +107,50 @@ if (config.public && !config.authEnabled) {
   process.exit(1);
 }
 
+/**
+ * Kennwort merken.
+ *
+ * Ein bei jedem Start neu erzeugtes Kennwort waere beim taeglichen Gebrauch
+ * eine Zumutung: nach jedem Neustart muesste man sich am Telefon neu anmelden
+ * und die Zeichenfolge erneut abtippen. Es wird deshalb einmal erzeugt und
+ * daneben abgelegt — nur fuer den Eigentuemer lesbar und nicht im Repository.
+ */
+// Ort ueberschreibbar: Tests duerfen dem Anwender nicht sein Kennwort
+// ueberschreiben, und wer die Datei woanders haben will, kann sie verschieben.
+const PASSWORD_FILE = args['password-file'] || process.env.KENNWORT_DATEI ||
+  path.join(__dirname, '.kennwort');
+
+function rememberedPassword() {
+  try {
+    const stored = fs.readFileSync(PASSWORD_FILE, 'utf8').trim();
+    return stored || null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberPassword(password) {
+  try {
+    fs.writeFileSync(PASSWORD_FILE, `${password}\n`, { mode: 0o600 });
+    return true;
+  } catch (err) {
+    console.warn(`[Hinweis] Kennwort konnte nicht gespeichert werden: ${err.message}`);
+    return false;
+  }
+}
+
 let generatedPassword = null;
+let passwordStored = false;
 if (config.authEnabled && !config.password) {
-  config.password = auth.generatePassword();
-  generatedPassword = config.password;
+  const remembered = rememberedPassword();
+  if (remembered) {
+    config.password = remembered;
+    passwordStored = true;
+  } else {
+    config.password = auth.generatePassword();
+    generatedPassword = config.password;
+    passwordStored = rememberPassword(config.password);
+  }
 }
 const sessionKey = config.authEnabled ? auth.deriveKey(config.password) : null;
 const loginLimiter = auth.createRateLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
@@ -542,8 +582,9 @@ function isInstalled(binary) {
 /**
  * Hinweise fuer den Zugriff von unterwegs.
  *
- * Bewusst nur Vorschlaege statt eines automatisch gestarteten Tunnels: was das
- * eigene Dashboard ins Internet stellt, soll man selbst ausloesen und sehen.
+ * Nur auf Nachfrage (--public) ausfuehrlich: im Normalfall sucht man beim
+ * Start die Adresse fuers Telefon und das Kennwort, nichts sonst. Alles andere
+ * an dieser Stelle verdeckt genau das.
  */
 function outsideHints() {
   const lines = [];
@@ -563,56 +604,72 @@ function outsideHints() {
     lines.push('    Den Router NICHT oeffnen: ein weitergeleiteter Port stellt den Rechner');
     lines.push('    ungeschuetzt ins Netz.');
   }
-  if (!config.public) {
-    lines.push('    Dabei den Server mit --public starten, sonst fehlen die Einstellungen');
-    lines.push('    fuer den Betrieb hinter einem Tunnel.');
-  }
   return lines.join('\n');
 }
 
+const RAHMEN = '  ' + '═'.repeat(58);
+
 server.listen(config.port, config.host, () => {
   const lan = lanAddresses();
-  const parts = [
-    'Aktien-Dashboard',
-    `  an diesem Rechner   http://localhost:${config.port}`,
-  ];
-  for (const i of lan) {
-    parts.push(`  am iPhone im WLAN   http://${i.address}:${config.port}   (${i.name})`);
-  }
+  const parts = [''];
+
+  // --- Das Wesentliche zuerst, eingerahmt ---------------------------------
+  parts.push(RAHMEN);
+  parts.push('');
   if (lan.length > 0) {
-    parts.push('  Dort im Browser oeffnen, dann Teilen -> "Zum Home-Bildschirm" —');
-    parts.push('  danach startet es wie eine App, ohne Safari-Leisten.');
+    parts.push('    AM IPHONE IM SAFARI OEFFNEN');
+    parts.push('');
+    for (const i of lan) parts.push(`        http://${i.address}:${config.port}`);
+  } else {
+    parts.push('    KEINE NETZADRESSE GEFUNDEN');
+    parts.push('');
+    parts.push('        Der Rechner haengt in keinem WLAN oder Netzwerk.');
+    parts.push('        Am Rechner selbst: http://localhost:' + config.port);
+  }
+  if (config.authEnabled) {
+    parts.push('');
+    parts.push('    KENNWORT');
+    parts.push('');
+    parts.push(`        ${config.password}`);
   }
   parts.push('');
-  parts.push(outsideHints());
+  parts.push(RAHMEN);
   parts.push('');
 
+  if (lan.length > 0) {
+    parts.push('  Danach am iPhone: Teilen-Symbol -> "Zum Home-Bildschirm".');
+    parts.push('  Dann startet es wie eine App, ohne Safari-Leisten.');
+    parts.push('');
+    parts.push('  iPhone und Rechner muessen im selben WLAN sein.');
+  }
+  parts.push('  Dieses Fenster offen lassen — es ist der Server. Beenden: Strg + C.');
+  parts.push('');
+
+  // --- Einzelheiten danach -------------------------------------------------
   if (!config.authEnabled) {
     parts.push('  ZUGANG: offen — jeder, der die Adresse erreicht, sieht das Dashboard.');
     parts.push('  Das ist nur im eigenen WLAN vertretbar.');
-  } else if (generatedPassword) {
-    parts.push('  ZUGANG: Kennwort (neu erzeugt, gilt nur fuer diesen Start)');
-    parts.push('');
-    parts.push(`      ${generatedPassword}`);
-    parts.push('');
-    parts.push('  Dauerhaft festlegen, damit es Neustarts uebersteht:');
-    parts.push('      DASHBOARD_PASSWORD="..." npm run stocks');
-    parts.push('  Die Anmeldung am Geraet haelt danach 30 Tage.');
-  } else {
-    parts.push('  ZUGANG: Kennwort aus der Vorgabe. Anmeldung haelt 30 Tage je Geraet.');
+  } else if (generatedPassword && passwordStored) {
+    parts.push(`  Das Kennwort wurde einmalig erzeugt und gemerkt (${PASSWORD_FILE}).`);
+    parts.push('  Es bleibt bei jedem Start gleich; die Anmeldung haelt 30 Tage je Geraet.');
+  } else if (passwordStored) {
+    parts.push(`  Kennwort gemerkt in ${PASSWORD_FILE} — zum Aendern Datei loeschen.`);
   }
 
-  parts.push('');
   parts.push(
     `  Maerkte: ${config.markets.join(', ')} · Titel: ${config.limit} · ` +
-      `Raster: ${config.interval} · Historie: ${config.range}`
-  );
-  parts.push(
-    `  Horizont: ${config.horizonHours} h · Schwelle: ${(config.threshold * 100).toFixed(0)} % · ` +
+      `Raster: ${config.interval} · Horizont: ${config.horizonHours} h · ` +
       `Aktualisierung: alle ${config.refreshSeconds} s`
   );
-  if (config.public) parts.push('  Betrieb hinter Tunnel: weitergereichte Absender werden beachtet.');
-  if (config.offline) parts.push('  MODUS: offline — es werden Demo-Daten erzeugt.');
+  if (config.offline) parts.push('  MODUS: offline — Demo-Daten, keine echten Kurse.');
+  if (config.public) {
+    parts.push('');
+    parts.push('  Betrieb hinter Tunnel: weitergereichte Absender werden beachtet.');
+    parts.push(outsideHints());
+  } else {
+    parts.push('  Von unterwegs erreichbar? Siehe stocks/README.md ("Von unterwegs erreichbar").');
+  }
+  parts.push('');
 
   console.log(parts.join('\n'));
   refresh('start');

@@ -9,11 +9,14 @@ Trefferflächen mindestens 44 × 44 pt, Ränder auf Dynamic Island und
 Home-Indikator abgestimmt. Am Schreibtisch wird daraus dieselbe Oberfläche in
 mehreren Spalten mit voller Tabelle.
 
+Starten per Doppelklick auf `Dashboard starten.command` (macOS) bzw.
+`Dashboard starten.bat` (Windows) — oder im Terminal:
+
 ```bash
 npm run stocks          # Live-Betrieb im eigenen WLAN
 npm run stocks:public   # zusätzlich hinter einem Tunnel erreichbar
 npm run stocks:demo     # ohne Netz und ohne Anmeldung, mit Demo-Daten
-npm run test:stocks     # 77 Tests
+npm run test:stocks     # 78 Tests
 ```
 
 ---
@@ -21,22 +24,68 @@ npm run test:stocks     # 77 Tests
 ## Am iPhone benutzen
 
 Auf dem iPhone läuft kein Node — der Server steht auf Ihrem Rechner, das
-Telefon ruft ihn im WLAN auf. Drei Schritte, einmalig:
+Telefon ruft ihn im WLAN auf. Ohne Terminal, in vier Schritten:
 
-1. **Server starten** auf dem Rechner: `npm run stocks`.
-   Beim Start gibt er die Adresse aus, die das iPhone braucht:
+**1. Projekt laden.** [Als ZIP herunterladen](https://github.com/marcfoehrer-pixel/Maitre/archive/refs/heads/claude/stock-forecast-dashboard-lmn641.zip)
+und die Datei doppelklicken — sie entpackt sich in einen Ordner.
 
-   ```
-   Aktien-Dashboard
-     an diesem Rechner   http://localhost:4173
-     am iPhone im WLAN   http://192.168.1.42:4173   (en0)
-   ```
+**2. Node.js installieren**, falls noch nicht vorhanden: auf
+[nodejs.org](https://nodejs.org/de/download) die **LTS**-Fassung laden und
+durchklicken. Einmalig. (Der Starter in Schritt 3 sagt Ihnen, ob es fehlt, und
+öffnet die Seite selbst.)
 
-2. **Diese Adresse im Safari des iPhones öffnen.** Rechner und Telefon müssen
-   im selben WLAN sein.
+**3. Im entpackten Ordner doppelklicken auf:**
 
-3. **Teilen → „Zum Home-Bildschirm"**. Danach startet das Dashboard mit
-   eigenem Symbol und ohne Safari-Leisten, wie eine App.
+| | |
+| --- | --- |
+| macOS | `Dashboard starten.command` |
+| Windows | `Dashboard starten.bat` |
+
+> **macOS beim ersten Mal:** Ein Doppelklick auf eine geladene Datei wird
+> geblockt. Stattdessen **Rechtsklick → Öffnen → Öffnen**. Danach genügt der
+> Doppelklick.
+
+Es öffnet sich ein Fenster, und nach einem Moment steht dort das Wesentliche:
+
+```
+  ══════════════════════════════════════════════════════════
+
+    AM IPHONE IM SAFARI OEFFNEN
+
+        http://192.168.1.42:4173
+
+    KENNWORT
+
+        uzZc-9jk5-pLF6-aMEr
+
+  ══════════════════════════════════════════════════════════
+```
+
+**4. Am iPhone** in Safari diese Adresse eingeben, Kennwort eintippen, fertig.
+Dann **Teilen-Symbol → „Zum Home-Bildschirm"** — ab da starten Sie es über ein
+eigenes Symbol wie jede andere App.
+
+Drei Dinge, die es sonst scheitern lassen:
+
+- **Das Fenster muss offen bleiben** — es *ist* der Server. Beenden mit
+  `Strg` + `C` oder Fenster schließen.
+- **iPhone und Rechner im selben WLAN**, nicht über Mobilfunk.
+- **Die Adresse beginnt mit `192.168.…`** (oder `10.…`). `localhost` funktioniert
+  nur am Rechner selbst, nie am Telefon.
+
+Das Kennwort wird beim ersten Start einmal erzeugt und in `stocks/.kennwort`
+gemerkt — es bleibt danach gleich. Zum Ändern die Datei löschen oder ein
+eigenes vorgeben: `DASHBOARD_PASSWORD="…"`. Die Anmeldung am Gerät hält 30 Tage.
+
+### Für Terminal-Nutzer
+
+```bash
+git clone -b claude/stock-forecast-dashboard-lmn641 https://github.com/marcfoehrer-pixel/Maitre.git
+cd Maitre
+npm run stocks
+```
+
+Keine Abhängigkeiten, kein `npm install`.
 
 ### Was am Telefon anders ist
 
@@ -290,7 +339,7 @@ stocks/
     dashboard.css        Gestaltung — iPhone zuerst, hell und dunkel
     charts.js            Diagramme als Inline-SVG, ohne Bibliothek
     dashboard.js         Live-Verbindung, Zustand, Darstellung
-  test/                  77 Tests
+  test/                  78 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -319,13 +368,14 @@ node stocks/server.js [Optionen]
 | `--range` | `10d` | Historie für die Kalibrierung |
 | `--top` | `5` | Länge der Rangliste |
 | `--offline` | aus | Demo-Daten statt Portalabruf |
-| `--password` | erzeugt | Zugangskennwort |
+| `--password` | gemerkt/erzeugt | Zugangskennwort |
+| `--password-file` | `stocks/.kennwort` | Ablage des gemerkten Kennworts |
 | `--public` | aus | Betrieb hinter einem Tunnel: Kennwort verpflichtend, weitergereichte Absender und HTTPS-Angaben beachten |
 | `--no-auth` | aus | Zugangsschutz abschalten — nur im eigenen WLAN vertretbar |
 | `--host` | `0.0.0.0` | Adresse, an der gelauscht wird (`127.0.0.1` = nur dieser Rechner) |
 
 Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`,
-`DASHBOARD_PASSWORD`, `PUBLIC`, `HOST`, `TRUST_PROXY`.
+`DASHBOARD_PASSWORD`, `PUBLIC`, `HOST`, `TRUST_PROXY`, `KENNWORT_DATEI`.
 
 ### Schnittstelle
 
@@ -350,7 +400,7 @@ gültige Sitzung voraus.
 npm run test:stocks
 ```
 
-77 Tests über sieben Dateien. Die wichtigsten prüfen nicht Funktionen,
+78 Tests über sieben Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich

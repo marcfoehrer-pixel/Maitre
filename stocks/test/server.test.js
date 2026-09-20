@@ -5,6 +5,8 @@ const assert = require('node:assert');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const net = require('node:net');
+const fs = require('node:fs');
+const os = require('node:os');
 
 /**
  * Der Zugangsschutz am laufenden Server.
@@ -42,9 +44,16 @@ async function waitFor(base, timeoutMs = 25000) {
 
 async function withServer(extraArgs, run) {
   const port = await freePort();
+  // Eigene Kennwortdatei je Lauf: ein Test darf niemals das gemerkte Kennwort
+  // des Anwenders ueberschreiben oder von einem Vorlauf erben.
+  const passwordFile = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'maitre-test-')),
+    '.kennwort'
+  );
   const child = spawn(
     process.execPath,
-    [SERVER, '--offline', '--limit', '4', '--port', String(port), '--host', '127.0.0.1', ...extraArgs],
+    [SERVER, '--offline', '--limit', '4', '--port', String(port), '--host', '127.0.0.1',
+      '--password-file', passwordFile, ...extraArgs],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   let output = '';
@@ -56,6 +65,7 @@ async function withServer(extraArgs, run) {
     await run(base, () => output);
   } finally {
     child.kill('SIGKILL');
+    fs.rmSync(path.dirname(passwordFile), { recursive: true, force: true });
   }
 }
 
@@ -181,15 +191,34 @@ test('Die Aktualisierungsbremse schuetzt die Finanzportale', { timeout: 40000 },
   });
 });
 
-test('Ohne Kennwort erzeugt der Server eines und nennt es', { timeout: 40000 }, async () => {
+test('Ohne Vorgabe erzeugt der Server ein Kennwort und nennt es', { timeout: 40000 }, async () => {
   await withServer([], async (base, output) => {
     const res = await fetch(base, { redirect: 'manual' });
     assert.strictEqual(res.status, 302, 'ohne Vorgabe blieb der Zugang offen');
-    const match = /ZUGANG: Kennwort \(neu erzeugt[\s\S]*?\n\n\s+(\S+)\n/.exec(output());
+    const match = /KENNWORT\s*\n\s*\n\s+(\S+)\s*\n/.exec(output());
     assert.ok(match, 'das erzeugte Kennwort wird nicht ausgegeben');
     const angemeldet = await login(base, match[1]);
     assert.strictEqual(angemeldet.location, '/', 'das genannte Kennwort funktioniert nicht');
   });
+});
+
+test('Ein erzeugtes Kennwort ueberlebt den Neustart', { timeout: 60000 }, async () => {
+  // Sonst muesste man sich nach jedem Start am Telefon neu anmelden und eine
+  // neue Zeichenfolge abtippen — im taeglichen Gebrauch unzumutbar.
+  const datei = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'maitre-pw-')), '.kennwort');
+  const lies = () => fs.readFileSync(datei, 'utf8').trim();
+  try {
+    await withServer(['--password-file', datei], async () => {});
+    const erstes = lies();
+    assert.ok(erstes.length >= 16, 'kein Kennwort gemerkt');
+    await withServer(['--password-file', datei], async (base) => {
+      assert.strictEqual(lies(), erstes, 'das Kennwort hat sich beim Neustart geaendert');
+      const angemeldet = await login(base, erstes);
+      assert.strictEqual(angemeldet.location, '/', 'das gemerkte Kennwort funktioniert nicht');
+    });
+  } finally {
+    fs.rmSync(path.dirname(datei), { recursive: true, force: true });
+  }
 });
 
 test('Offen erreichbar ohne Kennwort wird verweigert', { timeout: 40000 }, async () => {
