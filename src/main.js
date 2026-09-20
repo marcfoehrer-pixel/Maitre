@@ -103,7 +103,7 @@
     running = false;
     saveBestScore();
     updateHud();
-    showMessage('Game Over', 'Punkte: ' + game.score.toLocaleString('de-DE') + ' — Enter für eine neue Partie');
+    showMessage('Game Over', 'Punkte: ' + game.score.toLocaleString('de-DE') + ' — tippen oder Enter für eine neue Partie');
   }
 
   /**
@@ -198,7 +198,7 @@
   function togglePause() {
     if (game.gameOver) return;
     if (game.togglePause()) {
-      showMessage('Pause', 'P oder Esc zum Weiterspielen');
+      showMessage('Pause', 'Tippen oder P zum Weiterspielen');
     } else {
       hideMessage();
       lastTime = root.performance.now();
@@ -322,6 +322,11 @@
     }, { passive: true });
   }
 
+  /**
+   * Bildschirm-Tasten: auf pointerdown statt click, damit sie ohne Verzoegerung
+   * reagieren. Bewegen und Soft Drop wiederholen sich beim Halten - genau wie
+   * die Pfeiltasten auf der Tastatur.
+   */
   function bindButtons() {
     var map = {
       'btn-left': 'left',
@@ -331,17 +336,69 @@
       'btn-drop': 'hardDrop',
       'btn-hold': 'hold'
     };
+    var repeatable = { left: true, right: true, softDrop: true };
+
     Object.keys(map).forEach(function (id) {
       var el = $(id);
       if (!el) return;
-      el.addEventListener('click', function (e) {
+      var action = map[id];
+      var delayTimer = null;
+      var repeatTimer = null;
+
+      function stop() {
+        if (delayTimer) { root.clearTimeout(delayTimer); delayTimer = null; }
+        if (repeatTimer) { root.clearInterval(repeatTimer); repeatTimer = null; }
+      }
+
+      function fire() {
+        if (game.gameOver || game.paused) return;
+        ACTIONS[action]();
+      }
+
+      el.addEventListener('pointerdown', function (e) {
         e.preventDefault();
-        if (!game.gameOver && !game.paused) ACTIONS[map[id]]();
+        fire();
+        if (!repeatable[action]) return;
+        stop();
+        delayTimer = root.setTimeout(function () {
+          repeatTimer = root.setInterval(fire, ARR_MS);
+        }, DAS_MS);
       });
+
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evt) {
+        el.addEventListener(evt, stop);
+      });
+      // Sicherheitsnetz: Wird der Finger ausserhalb gehoben, stoppt es trotzdem.
+      root.addEventListener('pointerup', stop);
     });
 
     $('btn-new').addEventListener('click', newGame);
     $('btn-pause').addEventListener('click', togglePause);
+  }
+
+  /**
+   * Misst den tatsaechlich freien Platz fuer das Spielfeld: alles oberhalb
+   * steht bereits, die Tastenleiste darunter braucht ihre Hoehe. So fuellt
+   * das Feld den Schirm, ohne dass gescrollt werden muss.
+   */
+  function applyLayout() {
+    var column = document.querySelector('.board-col');
+    var touch = document.querySelector('.touch');
+    var narrow = (root.innerWidth || 1024) < 620;
+
+    renderer.maxBoardWidth = column.clientWidth;
+    renderer.nextHorizontal = narrow;
+
+    var top = column.getBoundingClientRect().top;
+    var touchVisible = root.getComputedStyle(touch).display !== 'none';
+    var reserve = touchVisible ? touch.offsetHeight + 24 : 28;
+
+    // Auf dem Handy liegt die Knopfzeile zwischen Feld und Tastenleiste.
+    var actions = document.querySelector('.actions');
+    if (narrow && actions) reserve += actions.offsetHeight + 7;
+    renderer.maxBoardHeight = Math.max(240, (root.innerHeight || 800) - top - reserve);
+
+    renderer.resize(game);
   }
 
   function init() {
@@ -357,20 +414,24 @@
     };
 
     renderer = new root.TetrisRenderer($('board'), $('next'), $('hold'));
-    // Breite der Spielfeld-Spalte vor dem ersten Zeichnen ermitteln.
-    renderer.maxBoardWidth = document.querySelector('.board-col').clientWidth;
-    renderer.resize(game);
+    applyLayout();
 
     loadBestScore();
     updateHud();
     bindButtons();
     bindTouch($('board'));
 
+    // Ohne Tastatur (Handy, Tablet) muss das Overlay selbst bedienbar sein.
+    elements.overlay.classList.add('overlay--clickable');
+    elements.overlay.addEventListener('click', function () {
+      if (game.paused) togglePause();
+      else newGame();
+    });
+
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
     root.addEventListener('resize', function () {
-      renderer.maxBoardWidth = document.querySelector('.board-col').clientWidth;
-      renderer.resize(game);
+      applyLayout();
     });
     root.addEventListener('blur', function () {
       dasDirection = 0;
@@ -381,7 +442,7 @@
     // Debug-Zugriff: erlaubt Konsolen-Experimente und automatisierte Tests.
     root.Tetris = { game: game, renderer: renderer, newGame: newGame };
 
-    showMessage('Tetris', 'Enter oder „Neues Spiel" zum Starten');
+    showMessage('Tetris', 'Tippen oder Enter zum Starten');
     renderer.draw(game);
     renderer.drawNext(game);
     renderer.drawHold(game);

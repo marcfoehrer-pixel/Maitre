@@ -26,7 +26,7 @@
   Renderer.prototype.resize = function (game) {
     var dpr = root.devicePixelRatio || 1;
     var maxWidth = this.maxBoardWidth || 320;
-    var maxHeight = (root.innerHeight || 800) * 0.74;
+    var maxHeight = this.maxBoardHeight || (root.innerHeight || 800) * 0.74;
 
     this.cell = Math.max(10, Math.floor(Math.min(maxWidth / game.cols, maxHeight / game.rows)));
     var width = this.cell * game.cols;
@@ -167,6 +167,17 @@
     ctx.clearRect(0, 0, w, h);
 
     var count = Math.min(4, game.queue.length);
+
+    // Auf schmalen Geraeten liegt die Vorschau quer ueber dem Spielfeld.
+    if (this.nextHorizontal) {
+      var slotW = w / count;
+      var sizeH = Math.min(slotW * 0.2, h * 0.22);
+      for (var k = 0; k < count; k++) {
+        this.drawPreviewPiece(ctx, game.queue[k], sizeH, slotW * k + slotW / 2, h / 2);
+      }
+      return;
+    }
+
     var slot = h / count;
     var size = Math.min(slot * 0.42, w * 0.18);
     for (var i = 0; i < count; i++) {

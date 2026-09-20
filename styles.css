@@ -15,6 +15,8 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  /* iOS: kein Gummiband-Scrollen waehrend des Spiels. */
+  overscroll-behavior: none;
 }
 
 body {
@@ -27,6 +29,10 @@ body {
   justify-content: center;
   padding: 20px 16px 32px;
   -webkit-tap-highlight-color: transparent;
+  /* Verhindert, dass Wischen im Spielfeld Text markiert. */
+  -webkit-user-select: none;
+  user-select: none;
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
 }
 
 .game {
@@ -150,6 +156,8 @@ body {
 
 .board {
   display: block;
+  /* Wischgesten gehoeren dem Spiel, nicht dem Scrollen oder Zoomen. */
+  touch-action: none;
 }
 
 .overlay {
@@ -167,6 +175,8 @@ body {
 }
 
 .overlay.hidden { display: none; }
+
+.overlay--clickable { cursor: pointer; }
 
 .overlay__title {
   margin: 0;
@@ -190,6 +200,7 @@ body {
 
 .btn {
   appearance: none;
+  touch-action: manipulation;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
@@ -218,6 +229,8 @@ body {
 
 .touch__btn {
   appearance: none;
+  /* Unterbindet den Doppeltipp-Zoom von iOS Safari. */
+  touch-action: manipulation;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.07);
   color: var(--text);
@@ -276,31 +289,84 @@ kbd {
 }
 
 @media (max-width: 620px) {
-  body { padding: 12px 10px 24px; }
+  body { padding: 10px 10px calc(20px + env(safe-area-inset-bottom)); }
 
+  /* Handy-Layout: Infozeilen wandern ueber das Feld, damit das Spielfeld
+     die volle Breite bekommt - dort war vorher der Engpass. */
   .game__layout {
-    grid-template-columns: 78px minmax(0, 1fr) 78px;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "left    right"
+      "board   board"
+      "actions actions";
     gap: 7px;
   }
 
-  .box { padding: 8px 6px; }
+  .panel--left { grid-area: left; }
+  .board-col { grid-area: board; }
 
-  /* Schmale Spalten: Laufweite raus, sonst bricht "Nächste" um. */
+  /* Die rechte Spalte loest sich auf: Vorschau nach oben, die Knoepfe
+     bekommen eine eigene Zeile - in der schmalen Box passten sie nicht. */
+  .panel--right { display: contents; }
+  .panel--right > .box:not(.actions) { grid-area: right; }
+  .panel--right > .actions { grid-area: actions; }
+
+  .panel {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 7px;
+  }
+
+  .box { padding: 6px; flex: 1; min-width: 0; }
+
   .box__title {
     font-size: 9px;
     letter-spacing: 0.04em;
+    margin-bottom: 4px;
   }
 
-  .preview--hold { height: 52px; }
-  .preview--next { height: 150px; }
+  .preview--hold { height: 34px; }
+  .preview--next { height: 34px; }
 
-  .stat__label { font-size: 9px; letter-spacing: 0.06em; }
-  .stat__value { font-size: 15px; }
-  .btn { font-size: 11px; padding: 8px 4px; }
 
-  .touch { display: grid; gap: 6px; }
+
+  .stats {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  /* Reihen und Rekord entfallen auf dem Handy - Platz vor Vollstaendigkeit. */
+  .stat:nth-child(2),
+  .stat:nth-child(4) { display: none; }
+
+  .stat { flex: 1; align-items: center; text-align: center; }
+  .stat__label { font-size: 8px; letter-spacing: 0.04em; }
+  .stat__value { font-size: 14px; }
+
+  .actions {
+    flex-direction: row;
+    justify-content: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .actions .btn {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 11px;
+    padding: 7px 14px;
+    white-space: nowrap;
+  }
+
+  .touch { display: grid; gap: 6px; margin-top: 10px; }
   .touch__btn { font-size: 13px; padding: 12px 0; }
-  .game__title { font-size: 22px; }
+  /* Der Titel steht im Overlay - auf dem Handy zaehlt die Hoehe mehr. */
+  .game__title { display: none; }
+  .game__header { margin-bottom: 4px; }
+  .game__event { font-size: 12px; min-height: 16px; }
+  .help { margin-top: 16px; }
   .help__list { gap: 5px 12px; font-size: 11px; }
 }
 
