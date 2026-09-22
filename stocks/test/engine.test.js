@@ -119,8 +119,16 @@ test('Die Beobachtungsliste enthaelt nur bekannte Titel', async () => {
 });
 
 test('Zu kurze Zeitreihen werden uebersprungen statt geraten', async () => {
-  // Eine Historie von einem Tag reicht fuer Vorlauf plus Horizont nicht aus.
-  const snap = await runCycle({ offline: true, limit: 4, range: '1d', horizonHours: 4 });
+  // Grobes Raster bei kurzer Historie: rund 34 Balken je Titel, waehrend
+  // Vorlauf (55) plus Horizont (8) allein schon 63 braucht.
+  //
+  // Bewusst so gewaehlt, dass es an jedem Wochentag zutrifft: eine fruehere
+  // Fassung dieses Tests nahm 5-Minuten-Balken und ging nur am Wochenende
+  // auf — unter der Woche liefert derselbe Zeitraum genug Balken, und der
+  // Test schlug ohne jede Code-Aenderung fehl.
+  const snap = await runCycle({
+    offline: true, limit: 4, range: '1d', interval: '30m', horizonHours: 4,
+  });
   assert.strictEqual(snap.ranking.length, 0);
   assert.strictEqual(snap.skipped.length, 4);
   assert.ok(snap.skipped.every((s) => typeof s.reason === 'string' && s.reason.length > 0));

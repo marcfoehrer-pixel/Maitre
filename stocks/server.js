@@ -88,13 +88,16 @@ const config = {
   port: num(args.port ?? process.env.PORT, 4173),
   refreshSeconds: Math.max(20, num(args.refresh ?? process.env.REFRESH, 60)),
   offline: (args.offline ?? process.env.OFFLINE ?? 'false') !== 'false',
-  limit: num(args.limit, DEFAULTS.limit),
-  interval: args.interval || DEFAULTS.interval,
-  range: args.range || DEFAULTS.range,
-  horizonHours: num(args.horizon, DEFAULTS.horizonHours),
-  threshold: num(args.threshold, DEFAULTS.threshold),
-  topN: num(args.top, DEFAULTS.topN),
-  markets: (args.markets || 'DE,US').split(',').map((m) => m.trim().toUpperCase()).filter(Boolean),
+  // Durchweg auch als Umgebungsvariable: gehostete Umgebungen kennen keine
+  // Aufrufparameter, dort wird alles ueber die Umgebung gesetzt.
+  limit: num(args.limit ?? process.env.LIMIT, DEFAULTS.limit),
+  interval: args.interval || process.env.INTERVAL || DEFAULTS.interval,
+  range: args.range || process.env.RANGE || DEFAULTS.range,
+  horizonHours: num(args.horizon ?? process.env.HORIZON, DEFAULTS.horizonHours),
+  threshold: num(args.threshold ?? process.env.THRESHOLD, DEFAULTS.threshold),
+  topN: num(args.top ?? process.env.TOP, DEFAULTS.topN),
+  markets: (args.markets || process.env.MARKETS || 'DE,US')
+    .split(',').map((m) => m.trim().toUpperCase()).filter(Boolean),
 };
 
 // Ein offen erreichbares Dashboard ohne Kennwort ist kein Versehen, das man
@@ -137,6 +140,23 @@ function rememberPassword(password) {
     console.warn(`[Hinweis] Kennwort konnte nicht gespeichert werden: ${err.message}`);
     return false;
   }
+}
+
+/*
+ * Im Internet-Betrieb muss das Kennwort ausdruecklich gesetzt sein.
+ *
+ * Gehostete Umgebungen haben keinen bestaendigen Datentraeger: ein gemerktes
+ * Kennwort waere nach dem naechsten Neustart weg und ein erzeugtes jedes Mal
+ * ein anderes. Man kaeme also unvorhersehbar nicht mehr hinein — besser, der
+ * Start scheitert sofort und sagt, was fehlt.
+ */
+if (config.public && config.authEnabled && !config.password) {
+  console.error(
+    'Abbruch: fuer den Betrieb mit --public muss ein Kennwort gesetzt sein.\n' +
+      '  Umgebungsvariable DASHBOARD_PASSWORD setzen, oder --password "..." angeben.\n' +
+      '  Ein automatisch erzeugtes Kennwort waere nach jedem Neustart ein anderes.'
+  );
+  process.exit(1);
 }
 
 let generatedPassword = null;

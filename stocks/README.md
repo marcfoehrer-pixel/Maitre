@@ -144,6 +144,61 @@ Zahlen als aktuelle auszugeben.
 
 ---
 
+## Ohne eigenen Rechner: im Internet betreiben
+
+Das Dashboard braucht einen laufenden Server — das ist keine Bequemlichkeits-
+frage, sondern technisch unumgänglich: die Finanzportale setzen keine
+CORS-Freigabe, ein Browser käme an die Kursdaten gar nicht heran. Irgendwo muss
+also Node laufen und abrufen.
+
+Wenn das nicht Ihr Rechner sein soll, stellen Sie den Server zu einem Anbieter.
+Dann genügt das Telefon — auch die Einrichtung läuft im Browser, ganz ohne
+Laptop.
+
+### Der vorbereitete Weg: Render.com
+
+Im Repository liegt dafür [`render.yaml`](../render.yaml). Damit ist die
+Einrichtung eine Formularseite:
+
+1. Auf **render.com** ein kostenloses Konto anlegen und mit dem GitHub-Konto
+   verbinden.
+2. **New → Blueprint** wählen, dieses Repository auswählen.
+   Render liest `render.yaml` und richtet alles selbst ein.
+3. Es fragt nach **`DASHBOARD_PASSWORD`** — ein Kennwort Ihrer Wahl eintragen.
+   Das ist die einzige Eingabe.
+4. Nach wenigen Minuten steht eine feste Adresse der Form
+   `https://aktien-dashboard.onrender.com` bereit.
+5. Diese Adresse am iPhone öffnen, anmelden, **Teilen → „Zum Home-Bildschirm"**.
+
+Ab dann ist das Dashboard jederzeit erreichbar — im WLAN, im Mobilfunknetz,
+überall, ohne dass bei Ihnen irgendetwas laufen muss.
+
+### Was Sie dabei wissen sollten
+
+- **Der kostenlose Tarif legt den Dienst schlafen**, wenn etwa 15 Minuten
+  niemand zugreift. Der erste Aufruf danach dauert rund eine Minute, dann läuft
+  es normal. Im Schlaf werden keine Kurse abgerufen. Ein bezahlter Tarif
+  (ab etwa 7 $/Monat) hält ihn wach.
+- **Das Kennwort ist jetzt Pflicht.** Mit `--public` verweigert der Server den
+  Start, wenn keines gesetzt ist: ein automatisch erzeugtes wäre nach jedem
+  Neustart ein anderes, und Sie kämen unvorhersehbar nicht mehr hinein.
+- **Abrufe kommen aus einem Rechenzentrum.** Yahoo Finance drosselt solche
+  Adressen häufiger als private Anschlüsse. Fällt die Quelle aus, sagt das
+  Dashboard es über die Quellen-Ampel, statt Zahlen zu erfinden. Deshalb ist
+  die Aktualisierung dort auf 120 s gesetzt statt auf 60 s.
+- **`render.yaml` zeigt auf den Entwicklungszweig.** Wird der Pull Request
+  zusammengeführt und der Zweig gelöscht, dort auf den Hauptzweig umstellen.
+
+### Andere Anbieter
+
+[`Dockerfile`](../Dockerfile) im Projektwurzelverzeichnis läuft bei jedem
+Anbieter, der Container ausführt — Railway, Fly.io, Koyeb oder ein eigener
+Server. Nötig sind nur zwei Angaben: `DASHBOARD_PASSWORD` setzen und `PUBLIC`
+auf `true` lassen. Alle Einstellungen aus der Tabelle unten lassen sich auch
+als Umgebungsvariable setzen.
+
+---
+
 ## Von unterwegs erreichbar
 
 Sobald das Dashboard außerhalb des eigenen WLANs erreichbar ist, ist es für

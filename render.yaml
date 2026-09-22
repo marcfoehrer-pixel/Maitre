@@ -1,0 +1,29 @@
+# Bauplan fuer Render.com — damit laeuft das Dashboard ohne eigenen Rechner.
+#
+# Einrichtung im Browser: Render mit dem GitHub-Konto verbinden, dieses
+# Repository auswaehlen, Kennwort eingeben, fertig. Kein Terminal noetig.
+#
+# Der kostenlose Tarif legt den Dienst nach etwa 15 Minuten ohne Zugriff
+# schlafen; der erste Aufruf danach dauert rund eine Minute. Deshalb ist die
+# Aktualisierung hier auf 120 s gesetzt statt auf 60 s — im Schlaf laeuft
+# ohnehin nichts, und seltenere Abrufe schonen die Portale.
+
+services:
+  - type: web
+    name: aktien-dashboard
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: claude/stock-forecast-dashboard-lmn641
+    buildCommand: "echo 'keine Abhaengigkeiten zu installieren'"
+    startCommand: "node stocks/server.js --public"
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DASHBOARD_PASSWORD
+        sync: false          # wird bei der Einrichtung abgefragt
+      - key: REFRESH
+        value: "120"
+      - key: LIMIT
+        value: "40"

@@ -221,6 +221,42 @@ test('Ein erzeugtes Kennwort ueberlebt den Neustart', { timeout: 60000 }, async 
   }
 });
 
+test('Internet-Betrieb ohne gesetztes Kennwort wird verweigert', { timeout: 40000 }, async () => {
+  // Gehostete Umgebungen haben keinen bestaendigen Datentraeger: ein
+  // erzeugtes Kennwort waere nach jedem Neustart ein anderes, und man kaeme
+  // unvorhersehbar nicht mehr hinein.
+  const port = await freePort();
+  const child = spawn(process.execPath, [SERVER, '--offline', '--public', '--port', String(port)],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', (d) => { output += d; });
+  child.stderr.on('data', (d) => { output += d; });
+  const code = await new Promise((resolve) => child.on('exit', resolve));
+  assert.strictEqual(code, 1, 'der Server startete ohne festes Kennwort im Internet-Betrieb');
+  assert.match(output, /DASHBOARD_PASSWORD/);
+});
+
+test('Einstellungen lassen sich ueber die Umgebung setzen', { timeout: 40000 }, async () => {
+  // Bei gehosteten Anbietern gibt es keine Aufrufparameter, nur Umgebung.
+  const port = await freePort();
+  const child = spawn(process.execPath, [SERVER, '--offline', '--host', '127.0.0.1'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PORT: String(port), LIMIT: '6', HORIZON: '2',
+      MARKETS: 'DE', DASHBOARD_PASSWORD: PASSWORD, PUBLIC: 'true' },
+  });
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    await waitFor(base);
+    const { cookie } = await login(base, PASSWORD);
+    const snapshot = await (await fetch(`${base}/api/snapshot`, { headers: { cookie } })).json();
+    assert.strictEqual(snapshot.watchlist.length, 6);
+    assert.strictEqual(snapshot.config.horizonHours, 2);
+    assert.deepStrictEqual(snapshot.config.markets, ['DE']);
+  } finally {
+    child.kill('SIGKILL');
+  }
+});
+
 test('Offen erreichbar ohne Kennwort wird verweigert', { timeout: 40000 }, async () => {
   const port = await freePort();
   const child = spawn(
