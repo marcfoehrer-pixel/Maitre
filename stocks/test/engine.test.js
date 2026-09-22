@@ -14,7 +14,10 @@ const { fetchSeries } = require('./fixtures/kurse');
  * Kurse in die Rechnung zu bekommen — im Betrieb ist sie nie gesetzt, und
  * genau deshalb kann das Dashboard keine erfundenen Zahlen anzeigen.
  */
-const cycle = runCycle({ fetchSeries, limit: 12, horizonHours: 2 });
+// fetchBudget grosszuegig: die Einspeisung kennt keine Minutengrenze, und
+// hier geht es um die Rechenkette, nicht um die Schonung einer Quelle. Die
+// Obergrenze selbst wird in throttle.test.js geprueft.
+const cycle = runCycle({ fetchSeries, fetchBudget: 40, limit: 12, horizonHours: 2, fetchBudget: 40 });
 
 test('Ein Durchlauf liefert eine vollstaendige Momentaufnahme', async () => {
   const snap = await cycle;
@@ -99,6 +102,7 @@ test('Es gibt keinen Rueckfall auf erzeugte Kurse', async () => {
   // mit erfundenen Zahlen in der Rangliste stehen — er wird uebersprungen.
   const snap = await runCycle({
     limit: 6,
+    fetchBudget: 40,
     fetchSeries: () => ({ ok: false, source: 'Yahoo Finance', error: 'HTTP 503' }),
   });
   assert.strictEqual(snap.ranking.length, 0, 'trotz Ausfall stand etwas in der Rangliste');
@@ -113,6 +117,7 @@ test('Es gibt keinen Rueckfall auf erzeugte Kurse', async () => {
 test('Ein einzelner Ausfall kippt nicht den ganzen Durchlauf', async () => {
   const snap = await runCycle({
     limit: 8,
+    fetchBudget: 40,
     fetchSeries: (entry, config) =>
       entry.symbol === 'SAP.DE'
         ? { ok: false, source: 'Yahoo Finance', error: 'Zeitlimit' }
@@ -145,8 +150,8 @@ test('Im Betrieb stehen ausschliesslich echte Kursquellen in der Kette', async (
 });
 
 test('Ein laengerer Horizont aendert die Balkenzahl und die Schaetzung', async () => {
-  const short = await runCycle({ fetchSeries, limit: 6, horizonHours: 1 });
-  const long = await runCycle({ fetchSeries, limit: 6, horizonHours: 4 });
+  const short = await runCycle({ fetchSeries, fetchBudget: 40, limit: 6, horizonHours: 1 });
+  const long = await runCycle({ fetchSeries, fetchBudget: 40, limit: 6, horizonHours: 4 });
   assert.strictEqual(short.config.horizonBars, 12);
   assert.strictEqual(long.config.horizonBars, 48);
   const bySymbol = (snap) => Object.fromEntries(snap.watchlist.map((w) => [w.symbol, w.probability]));
@@ -157,7 +162,7 @@ test('Ein laengerer Horizont aendert die Balkenzahl und die Schaetzung', async (
 });
 
 test('Ein Marktfilter schraenkt das Universum wirklich ein', async () => {
-  const snap = await runCycle({ fetchSeries, limit: 6, markets: ['DE'] });
+  const snap = await runCycle({ fetchSeries, fetchBudget: 40, limit: 6, markets: ['DE'] });
   assert.ok(snap.watchlist.every((w) => w.market === 'DE'));
   assert.deepStrictEqual(Object.keys(snap.venues), ['DE']);
 });
@@ -177,7 +182,7 @@ test('Zu kurze Zeitreihen werden uebersprungen statt geraten', async () => {
   // auf — unter der Woche liefert derselbe Zeitraum genug Balken, und der
   // Test schlug ohne jede Code-Aenderung fehl.
   const snap = await runCycle({
-    fetchSeries, limit: 4, range: '1d', interval: '30m', horizonHours: 4,
+    fetchSeries, fetchBudget: 40, limit: 4, range: '1d', interval: '30m', horizonHours: 4,
   });
   assert.strictEqual(snap.ranking.length, 0);
   assert.strictEqual(snap.skipped.length, 4);

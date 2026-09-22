@@ -286,31 +286,40 @@
     }
 
     if (snap.throttle && snap.throttle.blocked) {
+      const tageslimit = (snap.skipped || []).some((x) => /Tageskontingent/.test(x.reason || ''));
       notices.push({
         level: 'warning',
         icon: '⏸',
-        title: `Kursquelle drosselt — Abfragen pausieren noch ${snap.throttle.secondsLeft} s.`,
-        body:
-          'Yahoo Finance begrenzt die Zahl der Abfragen. Weitere Versuche würden die Sperre ' +
-          'nur verlängern, deshalb wartet das Dashboard ab und zeigt so lange den zuletzt ' +
-          'abgerufenen Stand — mit Zeitangabe an jeder Karte.',
+        title: tageslimit
+          ? 'Tageskontingent der Kursquelle aufgebraucht.'
+          : `Kursquelle drosselt — Abfragen pausieren noch ${snap.throttle.secondsLeft} s.`,
+        body: tageslimit
+          ? 'Der kostenlose Tarif erlaubt 800 Abrufe je Tag. Das Kontingent füllt sich ' +
+            'morgen von selbst wieder auf. <strong>Kosten entstehen dadurch nicht</strong> — ' +
+            'überzählige Anfragen werden abgewiesen, nicht berechnet.'
+          : 'Die Quelle begrenzt die Zahl der Abfragen. Weitere Versuche würden die Sperre ' +
+            'nur verlängern, deshalb wartet das Dashboard ab und zeigt so lange den zuletzt ' +
+            'abgerufenen Stand — mit Zeitangabe an jeder Karte. Kosten entstehen keine.',
       });
     }
 
     if (snap.skipped && snap.skipped.length > 0) {
       // "Noch nicht abgerufen" ist kein Fehler, sondern der Aufbau: die Titel
       // verteilen sich absichtlich über mehrere Durchläufe.
-      const wartend = snap.skipped.filter((x) => x.reason === 'noch nicht abgerufen');
-      const echte = snap.skipped.filter((x) => x.reason !== 'noch nicht abgerufen');
+      // Der Server kennzeichnet wartende Titel selbst — die Oberflaeche muss
+      // nicht raten, ob eine Meldung ein Fehler ist.
+      const wartend = snap.skipped.filter((x) => x.waiting);
+      const echte = snap.skipped.filter((x) => !x.waiting);
       if (wartend.length > 0) {
         notices.push({
           level: 'info',
           icon: '◔',
-          title: `${wartend.length} weitere Titel werden noch geladen.`,
+          title: `${wartend.length} weitere Titel stehen an.`,
           body:
-            'Die Abrufe verteilen sich bewusst über mehrere Durchläufe, statt alle auf ' +
-            'einmal loszugehen — das ist der Grund, warum die Kursquelle nicht mehr drosselt. ' +
-            'Nach ein bis zwei Aktualisierungen ist die Liste vollständig.',
+            'Die Kursquelle erlaubt acht Abrufe je Minute. Die Titel werden deshalb über ' +
+            'mehrere Durchläufe verteilt geholt, statt alle auf einmal — genau das ' +
+            'verhindert, dass die Quelle drosselt. Nach wenigen Aktualisierungen ist die ' +
+            'Liste vollständig. Es entstehen dabei keine Kosten.',
         });
       }
       if (echte.length > 0) {

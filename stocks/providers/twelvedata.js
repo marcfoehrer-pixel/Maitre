@@ -25,6 +25,45 @@ const BASE = 'https://api.twelvedata.com/time_series';
 
 const backoff = createBackoff({ base: 60000, max: 20 * 60000, label: 'Twelve Data' });
 
+/**
+ * Minutenbremse.
+ *
+ * Der kostenlose Tarif erlaubt acht Abrufe je Minute. Beim Kaltstart gingen
+ * dagegen zwanzig Titel und drei Leitindizes in wenigen Sekunden los — ab dem
+ * neunten kam 429, und die Sperre legte anschliessend alles still. Am Ende kam
+ * genau ein Titel durch.
+ *
+ * Deshalb hier ein Eimer mit Zeitstempeln: ist er voll, wird gar nicht erst
+ * gefragt. Der Titel behaelt seinen Zwischenstand und kommt im naechsten
+ * Durchlauf an die Reihe. Das ist kein Fehler, sondern geordnetes Anstehen.
+ */
+const DEFAULT_RPM = 8;
+let rpm = DEFAULT_RPM;
+let fenster = [];
+
+function slotFrei(now = Date.now()) {
+  fenster = fenster.filter((t) => now - t < 60000);
+  return fenster.length < rpm;
+}
+
+function slotNehmen(now = Date.now()) {
+  fenster.push(now);
+}
+
+function sekundenBisSlot(now = Date.now()) {
+  if (slotFrei(now)) return 0;
+  return Math.max(1, Math.ceil((60000 - (now - fenster[0])) / 1000));
+}
+
+/** Nur fuer Tests und fuer Tarife mit anderem Kontingent. */
+function setRequestsPerMinute(value) {
+  rpm = Math.max(1, Number(value) || DEFAULT_RPM);
+}
+
+function resetRateLimiter() {
+  fenster = [];
+}
+
 /** Rasterbezeichnungen unterscheiden sich von denen bei Yahoo. */
 const INTERVALS = {
   '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min',
@@ -78,6 +117,13 @@ async function fetchCandles(entry, { interval = '5m', range = '10d', apiKey, tim
       error: `gedrosselt, noch ${backoff.secondsLeft()} s`,
     };
   }
+  if (!slotFrei()) {
+    // Bewusst kein Fehler: der Titel steht an, nicht aus.
+    return {
+      ok: false, source: 'Twelve Data', symbol: entry.symbol, deferred: true,
+      error: `Minutenkontingent voll — naechster Versuch in ${sekundenBisSlot()} s`,
+    };
+  }
 
   const params = new URLSearchParams({
     symbol: entry.td,
@@ -89,6 +135,7 @@ async function fetchCandles(entry, { interval = '5m', range = '10d', apiKey, tim
   });
   if (entry.tdMic) params.set('mic_code', entry.tdMic);
 
+  slotNehmen();
   const res = await json(`${BASE}?${params}`, { timeout, retries: 0 });
 
   if (res.status === 429) {
@@ -106,11 +153,29 @@ async function fetchCandles(entry, { interval = '5m', range = '10d', apiKey, tim
   if (res.data && res.data.status === 'error') {
     const code = Number(res.data.code);
     const message = res.data.message || 'Fehler ohne Angabe';
-    if (code === 429 || /limit/i.test(message)) {
+
+    if (code === 429 || /limit|credits/i.test(message)) {
+      // Minuten- und Tagesgrenze sind grundverschieden: die eine ist nach
+      // einer Minute vorbei, die andere erst am naechsten Tag. Beides mit
+      // derselben wachsenden Sperre zu behandeln waere in einem Fall zu hart
+      // und im anderen zu lasch.
+      const minute = /minute/i.test(message);
+      if (minute) {
+        // Eimer als voll markieren, bis das Zeitfenster abgelaufen ist.
+        const jetzt = Date.now();
+        fenster = Array.from({ length: rpm }, () => jetzt);
+        return {
+          ok: false, source: 'Twelve Data', symbol: entry.symbol, deferred: true,
+          error: 'Minutenkontingent erreicht — naechster Versuch in 60 s',
+        };
+      }
       const wait = backoff.penalise({ reason: message });
       return {
         ok: false, source: 'Twelve Data', symbol: entry.symbol, throttled: true,
-        error: `Tages- oder Minutengrenze erreicht — pausiert fuer ${Math.round(wait / 1000)} s`,
+        dailyLimit: /day|daily/i.test(message),
+        error: /day|daily/i.test(message)
+          ? 'Tageskontingent aufgebraucht — morgen wieder verfuegbar (keine Kosten)'
+          : `Kontingent erreicht — pausiert fuer ${Math.round(wait / 1000)} s`,
       };
     }
     return { ok: false, source: 'Twelve Data', symbol: entry.symbol, error: message };
@@ -128,6 +193,13 @@ async function fetchCandles(entry, { interval = '5m', range = '10d', apiKey, tim
   }
 }
 
-const throttleState = () => backoff.state();
+const throttleState = () => ({
+  ...backoff.state(),
+  requestsPerMinute: rpm,
+  slotsFrei: Math.max(0, rpm - fenster.filter((t) => Date.now() - t < 60000).length),
+});
 
-module.exports = { fetchCandles, parseSeries, outputSize, throttleState, backoff, INTERVALS };
+module.exports = {
+  fetchCandles, parseSeries, outputSize, throttleState, backoff, INTERVALS,
+  setRequestsPerMinute, resetRateLimiter, DEFAULT_RPM,
+};

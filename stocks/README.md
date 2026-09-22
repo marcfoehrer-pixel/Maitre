@@ -15,7 +15,7 @@ Starten per Doppelklick auf `Dashboard starten.command` (macOS) bzw.
 ```bash
 npm run stocks          # Live-Betrieb im eigenen WLAN
 npm run stocks:public   # zusätzlich hinter einem Tunnel erreichbar
-npm run test:stocks     # 90 Tests
+npm run test:stocks     # 93 Tests
 ```
 
 ---
@@ -208,10 +208,24 @@ die Kurse liefert, gewinnt; liefert keine, wird der Titel übersprungen und
 jeder Fehlergrund einzeln ausgewiesen. Welche Quelle einen Kurs geliefert hat,
 steht an jeder Karte.
 
-Der kostenlose Tarif erlaubt **800 Abrufe je Tag und 8 je Minute**. Die
-Voreinstellungen bleiben darunter: 20 Titel bei 15 Minuten Haltedauer sind
-rund 80 Abrufe je Stunde, und **außerhalb der Handelszeiten wird gar nicht
-abgerufen** — nach Börsenschluss ändert sich der Schlusskurs nicht mehr.
+Der kostenlose Tarif erlaubt **800 Abrufe je Tag und 8 je Minute**. Beide
+Grenzen sind eingebaut:
+
+- **Je Minute** hält eine Bremse im Provider höchstens acht Abrufe offen.
+  Überzählige Titel werden nicht abgewiesen, sondern stehen an und kommen im
+  nächsten Durchlauf dran. Ohne diese Bremse gingen beim Kaltstart 23 Abrufe
+  in wenigen Sekunden los — ab dem neunten kam `429`, die Sperre legte alles
+  still, und am Ende kam genau **ein** Titel durch.
+- **Je Tag** bleiben die Voreinstellungen deutlich darunter: 20 Titel bei 15
+  Minuten Haltedauer sind rund 80 Abrufe je Stunde, und **außerhalb der
+  Handelszeiten wird gar nicht abgerufen** — nach Börsenschluss ändert sich
+  der Schlusskurs nicht mehr.
+
+**Kosten können dabei nicht entstehen.** Der kostenlose Tarif hat kein
+hinterlegtes Zahlungsmittel; ist ein Kontingent erschöpft, werden Anfragen
+abgewiesen, nicht berechnet. Die Fehlermeldung von Twelve Data empfiehlt dabei
+einen größeren Tarif — das ist Werbung, keine Rechnung. Dasselbe gilt für den
+kostenlosen Tarif bei Render.
 
 ### Wenn das Portal drosselt (HTTP 429)
 
@@ -501,7 +515,7 @@ stocks/
     dashboard.js         Live-Verbindung, Zustand, Darstellung
   test/
     fixtures/kurse.js    deterministische Pruefstand-Kurse — nur für Tests
-    …                    90 Tests
+    …                    93 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -533,6 +547,7 @@ node stocks/server.js [Optionen]
 | `--password-file` | `stocks/.kennwort` | Ablage des gemerkten Kennworts |
 | `--candle-ttl` | 2 × Kerzenraster | Haltedauer der Kursreihen in Minuten — wirksamster Hebel gegen Drosselung |
 | `--twelvedata-key` | – | Schlüssel für Twelve Data; ohne ihn bleibt nur Yahoo |
+| `--fetch-budget` | `8` | Kursabrufe je Durchlauf — am Minutenkontingent der Quelle ausgerichtet |
 | `--public` | aus | Betrieb hinter einem Tunnel: Kennwort verpflichtend, weitergereichte Absender und HTTPS-Angaben beachten |
 | `--no-auth` | aus | Zugangsschutz abschalten — nur im eigenen WLAN vertretbar |
 | `--host` | `0.0.0.0` | Adresse, an der gelauscht wird (`127.0.0.1` = nur dieser Rechner) |
@@ -570,7 +585,7 @@ gültige Sitzung voraus.
 npm run test:stocks
 ```
 
-90 Tests über acht Dateien. Die wichtigsten prüfen nicht Funktionen,
+93 Tests über acht Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich
@@ -587,6 +602,8 @@ sondern **Zusagen**:
   die Rangliste leer und der echte Fehlergrund steht daneben. Erzeugte Kurse
   gibt es nur noch als Prüfstand unter `test/fixtures/`; sie erreichen die
   Rechnung ausschließlich über eine Einspeisung, die im Betrieb nie gesetzt ist.
+- *Die Minutenbremse lässt höchstens acht Abrufe je Minute durch* — ohne sie
+  gingen beim Kaltstart 23 auf einmal los, und es kam genau ein Titel durch.
 - *Bei HTTP 429 wird genau eine Anfrage gestellt, nicht zwei* — der Fehler,
   der den Ausfall im Betrieb ausgelöst hat, kann so nicht zurückkehren.
 - *Ohne Anmeldung gibt der Server nichts heraus* — gegen einen echten,

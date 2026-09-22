@@ -41,7 +41,12 @@ const DEFAULTS = {
    * die Obergrenze glaettet zusaetzlich den Kaltstart, bei dem sonst alle
    * Titel auf einmal abgefragt wuerden.
    */
-  fetchBudget: 20,
+  /*
+   * Acht, weil der kostenlose Tarif von Twelve Data acht Abrufe je Minute
+   * erlaubt. Mehr einzuplanen bringt nichts — die Minutenbremse der Quelle
+   * stellt den Rest ohnehin zurueck.
+   */
+  fetchBudget: 8,
   /**
    * Haltedauer einer Kursreihe, bevor sie neu geholt wird.
    *
@@ -182,6 +187,12 @@ async function loadSeries(entry, config) {
   for (const provider of chain) {
     const res = await provider.fetch(entry, config);
     if (res.ok) return res;
+    // "Steht an" ist kein Fehlschlag: der Titel wartet auf seinen Zeitschlitz.
+    // Dann die naechste Quelle zu belasten waere unnoetig — und wuerde dort
+    // womoeglich eine eigene Sperre ausloesen.
+    if (res.deferred) {
+      return { ...res, ok: false, waiting: true, attempts: versuche };
+    }
     if (res.throttled) gedrosselt = true;
     versuche.push({ name: provider.name, error: res.error });
     fehler.push(`${provider.name}: ${res.error}`);
@@ -221,7 +232,10 @@ async function loadSeriesCached(entry, config, cache, refresh, now = Date.now())
   if (!refresh) {
     if (brauchbar(hit)) return { ...hit.res, fromCache: true, dataAge: now - hit.at };
     if (hit) return { ok: false, source: hit.res.source, symbol: entry.symbol, error: 'Stand zu alt' };
-    return { ok: false, source: 'Kursquelle', symbol: entry.symbol, error: 'noch nicht abgerufen' };
+    return {
+      ok: false, source: 'Kursquelle', symbol: entry.symbol,
+      waiting: true, error: 'noch nicht abgerufen',
+    };
   }
 
   const res = await loadSeries(entry, config);
@@ -232,7 +246,8 @@ async function loadSeriesCached(entry, config, cache, refresh, now = Date.now())
   if (brauchbar(hit)) {
     return {
       ...hit.res, fromCache: true, dataAge: now - hit.at,
-      fetchError: res.error, throttled: Boolean(res.throttled), attempts: res.attempts,
+      fetchError: res.error, throttled: Boolean(res.throttled),
+      waiting: Boolean(res.waiting), attempts: res.attempts,
     };
   }
   return res;
@@ -375,13 +390,20 @@ async function runCycle(userConfig = {}) {
     const res = seriesList[i];
     if (res.ok) {
       noteSource(res.source || 'Kursquelle', 'ok', res.fetchError || null);
+    } else if (res.waiting) {
+      // Anstehen ist kein Ausfall — die Ampel bliebe sonst grundlos rot.
     } else if (res.attempts && res.attempts.length > 0) {
       for (const versuch of res.attempts) noteSource(versuch.name, 'fail', versuch.error);
     } else {
       noteSource(res.source || 'Kursquelle', 'fail', res.error);
     }
     if (!res.ok || res.candles.length < features.WARMUP + horizonBars + 5) {
-      prepared.push({ entry, error: res.error || 'zu wenige Kerzen', res });
+      prepared.push({
+        entry,
+        error: res.error || 'zu wenige Kerzen',
+        waiting: Boolean(res.waiting),
+        res,
+      });
       continue;
     }
     const { prepared: p, scores, vectors } = features.scoreSeries(res.candles);
@@ -404,7 +426,14 @@ async function runCycle(userConfig = {}) {
 
   for (const row of prepared) {
     if (row.error) {
-      skipped.push({ symbol: row.entry.symbol, name: row.entry.name, reason: row.error });
+      skipped.push({
+        symbol: row.entry.symbol,
+        name: row.entry.name,
+        reason: row.error,
+        // Wartende Titel sind kein Ausfall, sondern der geordnete Aufbau —
+        // die Oberflaeche soll das eine nicht wie das andere darstellen.
+        waiting: Boolean(row.waiting),
+      });
       continue;
     }
     const { entry, res, p, scores, vectors, samples, last } = row;

@@ -108,6 +108,7 @@ const config = {
   // Optionaler Zweitanbieter. Ohne Schluessel bleibt es bei Yahoo — das
   // genuegt im eigenen WLAN, scheitert aber im Rechenzentrum.
   twelveDataKey: args['twelvedata-key'] || process.env.TWELVEDATA_API_KEY || null,
+  fetchBudget: num(args['fetch-budget'] ?? process.env.FETCH_BUDGET, DEFAULTS.fetchBudget),
   markets: (args.markets || process.env.MARKETS || 'DE,US')
     .split(',').map((m) => m.trim().toUpperCase()).filter(Boolean),
 };
@@ -263,6 +264,7 @@ function engineConfig(horizonHours) {
     topN: config.topN,
     candleTtlMs: config.candleTtlMinutes > 0 ? config.candleTtlMinutes * 60000 : null,
     twelveDataKey: config.twelveDataKey,
+    fetchBudget: config.fetchBudget,
   };
 }
 

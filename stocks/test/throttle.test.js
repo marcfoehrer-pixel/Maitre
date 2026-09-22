@@ -157,3 +157,91 @@ test('Die Last je Stunde wird ausgewiesen', async () => {
   assert.strictEqual(snap.config.candleTtlMinutes, 15);
   assert.strictEqual(snap.config.requestsPerHour, 96);
 });
+
+// --- Minutenkontingent der Zweitquelle -------------------------------------
+
+const twelvedata = require('../providers/twelvedata');
+
+test('Die Minutenbremse laesst hoechstens acht Abrufe je Minute durch', async (t) => {
+  // Der kostenlose Tarif erlaubt acht je Minute. Beim Kaltstart gingen vorher
+  // 23 Abrufe in wenigen Sekunden los: ab dem neunten kam 429, die Sperre
+  // legte alles still, und es kam genau ein Titel durch.
+  const echtes = global.fetch;
+  let anfragen = 0;
+  global.fetch = async () => {
+    anfragen += 1;
+    return new Response(JSON.stringify({ meta: {}, values: [] }), { status: 200 });
+  };
+  t.after(() => {
+    global.fetch = echtes;
+    twelvedata.resetRateLimiter();
+    twelvedata.backoff.succeed();
+  });
+
+  twelvedata.resetRateLimiter();
+  twelvedata.backoff.succeed();
+
+  const eintrag = { symbol: 'SAP.DE', td: 'SAP', tdMic: 'XETR' };
+  const ergebnisse = [];
+  for (let i = 0; i < 12; i++) {
+    ergebnisse.push(await twelvedata.fetchCandles(eintrag, { apiKey: 'test', timeout: 500 }));
+  }
+
+  assert.strictEqual(anfragen, 8, `es gingen ${anfragen} Anfragen raus statt 8`);
+  const angestellt = ergebnisse.filter((r) => r.deferred);
+  assert.strictEqual(angestellt.length, 4);
+  assert.ok(angestellt.every((r) => /Minutenkontingent/.test(r.error)));
+  // Entscheidend: Anstehen ist kein Fehlschlag und loest keine lange Sperre aus.
+  assert.strictEqual(twelvedata.throttleState().blocked, false);
+});
+
+test('Die Minutengrenze loest keine lange Sperre aus, die Tagesgrenze schon', async (t) => {
+  const echtes = global.fetch;
+  const antwort = (message) => async () =>
+    new Response(JSON.stringify({ status: 'error', code: 429, message }), { status: 200 });
+  t.after(() => {
+    global.fetch = echtes;
+    twelvedata.resetRateLimiter();
+    twelvedata.backoff.succeed();
+  });
+  const eintrag = { symbol: 'SAP.DE', td: 'SAP', tdMic: 'XETR' };
+
+  twelvedata.resetRateLimiter();
+  twelvedata.backoff.succeed();
+  global.fetch = antwort('You have run out of API credits for the current minute.');
+  const proMinute = await twelvedata.fetchCandles(eintrag, { apiKey: 'test', timeout: 500 });
+  assert.strictEqual(proMinute.deferred, true, 'die Minutengrenze gilt als Fehlschlag');
+  assert.strictEqual(twelvedata.backoff.blocked(), false, 'eine Minute darf nicht lange sperren');
+
+  twelvedata.resetRateLimiter();
+  twelvedata.backoff.succeed();
+  global.fetch = antwort('You have run out of API credits for the current day.');
+  const proTag = await twelvedata.fetchCandles(eintrag, { apiKey: 'test', timeout: 500 });
+  assert.strictEqual(proTag.throttled, true);
+  assert.strictEqual(proTag.dailyLimit, true);
+  assert.match(proTag.error, /keine Kosten/, 'die Kostenfrage bleibt unbeantwortet');
+  assert.strictEqual(twelvedata.backoff.blocked(), true);
+});
+
+test('Ein anstehender Titel belastet die naechste Quelle nicht', async () => {
+  // Sonst loest das Warten bei der einen Quelle eine Sperre bei der anderen aus.
+  let yahooGefragt = 0;
+  const snap = await runCycle({
+    limit: 4,
+    fetchBudget: 40,
+    fetchSeries: (entry) => {
+      if (entry.symbol.endsWith('.DE')) {
+        return { ok: false, source: 'Twelve Data', deferred: true, error: 'Minutenkontingent voll' };
+      }
+      yahooGefragt += 1;
+      return { ok: false, source: 'Yahoo Finance', error: 'HTTP 403' };
+    },
+  });
+  const wartende = snap.skipped.filter((x) => x.waiting);
+  assert.ok(wartende.length > 0, 'kein Titel als wartend gefuehrt');
+  assert.ok(wartende.every((x) => x.symbol.endsWith('.DE')));
+  // Wartende Titel duerfen die Quellen-Ampel nicht auf Rot ziehen.
+  assert.ok(!snap.sources.some((q) => q.name === 'Twelve Data' && q.status === 'down'),
+    'Anstehen wurde als Quellenausfall gewertet');
+  assert.ok(yahooGefragt > 0, 'die Gegenprobe hat nicht gegriffen');
+});
