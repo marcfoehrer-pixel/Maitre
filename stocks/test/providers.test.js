@@ -24,6 +24,58 @@ test('Yahoo-Antwort wird zu Kerzen, Luecken fliegen raus', () => {
   assert.strictEqual(parsed.meta.previousClose, 10);
 });
 
+test('Bei HTTP 429 wird genau eine Anfrage gestellt, nicht zwei', async (t) => {
+  // Der Ausloeser des echten Ausfalls: bei Fehlschlag probierte jeder Titel
+  // einen zweiten Host. Aus 43 Titeln wurden 86 abgewiesene Anfragen je
+  // Durchlauf — das hielt die Drosselung dauerhaft am Leben.
+  const echtes = global.fetch;
+  const angefragt = [];
+  global.fetch = async (url) => {
+    angefragt.push(String(url));
+    return new Response('rate limited', {
+      status: 429, headers: { 'retry-after': '90' },
+    });
+  };
+  t.after(() => {
+    global.fetch = echtes;
+    yahoo.backoff.succeed();
+  });
+
+  yahoo.backoff.succeed();
+  const res = await yahoo.fetchCandles('AAPL');
+
+  assert.strictEqual(angefragt.length, 1, `es gingen ${angefragt.length} Anfragen raus`);
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.throttled, true);
+  assert.match(res.error, /429/);
+
+  // Und danach wird gar nicht mehr gefragt, bis die Sperre ablaeuft.
+  const zweiter = await yahoo.fetchCandles('MSFT');
+  assert.strictEqual(angefragt.length, 1, 'trotz Sperre wurde erneut angefragt');
+  assert.strictEqual(zweiter.throttled, true);
+  assert.ok(yahoo.throttleState().secondsLeft >= 85, 'Retry-After wurde nicht beachtet');
+});
+
+test('Ein Serverfehler darf den zweiten Host probieren', async (t) => {
+  // Anders als bei 429: hier hilft ein zweiter Versuch tatsaechlich.
+  const echtes = global.fetch;
+  let anzahl = 0;
+  global.fetch = async () => {
+    anzahl += 1;
+    return new Response('kaputt', { status: 500 });
+  };
+  t.after(() => {
+    global.fetch = echtes;
+    yahoo.backoff.succeed();
+  });
+
+  yahoo.backoff.succeed();
+  const res = await yahoo.fetchCandles('AAPL', { timeout: 500 });
+  assert.strictEqual(res.ok, false);
+  assert.ok(anzahl >= 2, 'der zweite Host wurde nicht probiert');
+  assert.notStrictEqual(res.throttled, true, 'ein Serverfehler ist keine Drosselung');
+});
+
 test('Yahoo-Fehlerantwort wird als Fehler gemeldet, nicht als leerer Chart', () => {
   assert.throws(
     () => yahoo.parseChart({ chart: { result: null, error: { description: 'Symbol unbekannt' } } }),

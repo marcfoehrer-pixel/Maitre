@@ -265,13 +265,44 @@
       });
     }
 
-    if (snap.skipped && snap.skipped.length > 0) {
+    // Die Quelle pausiert von "die Quelle ist kaputt" trennen — das eine
+    // geht von selbst vorbei, das andere nicht.
+    if (snap.throttle && snap.throttle.blocked) {
       notices.push({
         level: 'warning',
-        icon: '⚠',
-        title: `${snap.skipped.length} Titel übersprungen.`,
-        body: esc(snap.skipped.slice(0, 6).map((s) => `${s.symbol} (${s.reason})`).join(', ')),
+        icon: '⏸',
+        title: `Kursquelle drosselt — Abfragen pausieren noch ${snap.throttle.secondsLeft} s.`,
+        body:
+          'Yahoo Finance begrenzt die Zahl der Abfragen. Weitere Versuche würden die Sperre ' +
+          'nur verlängern, deshalb wartet das Dashboard ab und zeigt so lange den zuletzt ' +
+          'abgerufenen Stand — mit Zeitangabe an jeder Karte.',
       });
+    }
+
+    if (snap.skipped && snap.skipped.length > 0) {
+      // "Noch nicht abgerufen" ist kein Fehler, sondern der Aufbau: die Titel
+      // verteilen sich absichtlich über mehrere Durchläufe.
+      const wartend = snap.skipped.filter((x) => x.reason === 'noch nicht abgerufen');
+      const echte = snap.skipped.filter((x) => x.reason !== 'noch nicht abgerufen');
+      if (wartend.length > 0) {
+        notices.push({
+          level: 'info',
+          icon: '◔',
+          title: `${wartend.length} weitere Titel werden noch geladen.`,
+          body:
+            'Die Abrufe verteilen sich bewusst über mehrere Durchläufe, statt alle auf ' +
+            'einmal loszugehen — das ist der Grund, warum die Kursquelle nicht mehr drosselt. ' +
+            'Nach ein bis zwei Aktualisierungen ist die Liste vollständig.',
+        });
+      }
+      if (echte.length > 0) {
+        notices.push({
+          level: 'warning',
+          icon: '⚠',
+          title: `${echte.length} Titel übersprungen.`,
+          body: esc(echte.slice(0, 6).map((x) => `${x.symbol} (${x.reason})`).join(', ')),
+        });
+      }
     }
 
     // Am Telefon zugeklappt: die Kernaussage steht in der Zeile, die Begruendung
@@ -359,7 +390,8 @@
         ${headlines}
         <p class="card-note">
           Quellen: ${esc((item.sources || []).join(', '))}${item.crossCheck && item.crossCheck.fresh ? ` · Zweitquelle ${esc(num(item.crossCheck.price, 2))} (${esc(num(item.crossCheck.deviationPct, 2))} % Abw.)` : ''}
-          · letzte Kerze ${esc(clock(item.lastCandle))} Uhr
+          · letzte Kerze ${esc(clock(item.lastCandle))} Uhr${item.fromCache && item.dataAgeSeconds > 60
+            ? ` · Abruf vor ${Math.round(item.dataAgeSeconds / 60)} min` : ''}
         </p>
         </details>
       </article>`;
@@ -557,6 +589,7 @@
     $('colophon').textContent =
       `Durchlauf ${snap.cycleMs} ms · ${snap.watchlist.length} Titel · Raster ${snap.config.interval} · ` +
       `Historie ${snap.config.range} · Aktualisierung alle ${snap.refreshSeconds || 60} s · ` +
+      `${snap.fetched ?? 0} neu abgerufen, ${snap.cached ?? 0} aus Zwischenspeicher · ` +
       `Schwelle serverseitig ${Math.round(snap.config.threshold * 100)} %, Anzeige ${Math.round(state.threshold * 100)} %.` +
       // Damit nach einer Veroeffentlichung auf einen Blick feststeht, welcher
       // Stand antwortet — ohne raten zu muessen, ob schon ausgerollt wurde.

@@ -24,6 +24,13 @@ services:
       - key: DASHBOARD_PASSWORD
         sync: false          # wird bei der Einrichtung abgefragt
       - key: REFRESH
-        value: "120"
+        value: "180"
+      # Titelzahl und Haltedauer bestimmen zusammen die Last auf dem Portal:
+      # 24 Titel bei 15 Minuten Haltedauer sind rund 96 Abfragen je Stunde.
+      # Yahoo drosselt Rechenzentrums-Adressen deutlich frueher als private
+      # Anschluesse — mit 40 Titeln und 5 Minuten waren es rund 480, und genau
+      # das fuehrte zu HTTP 429.
       - key: LIMIT
-        value: "40"
+        value: "24"
+      - key: CANDLE_TTL_MIN
+        value: "15"

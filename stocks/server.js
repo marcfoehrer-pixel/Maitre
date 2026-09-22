@@ -102,6 +102,9 @@ const config = {
   horizonHours: num(args.horizon ?? process.env.HORIZON, DEFAULTS.horizonHours),
   threshold: num(args.threshold ?? process.env.THRESHOLD, DEFAULTS.threshold),
   topN: num(args.top ?? process.env.TOP, DEFAULTS.topN),
+  // Haltedauer der Kursreihen in Minuten — der wirksamste Hebel gegen
+  // Drosselung durch das Portal.
+  candleTtlMinutes: num(args['candle-ttl'] ?? process.env.CANDLE_TTL_MIN, 0),
   markets: (args.markets || process.env.MARKETS || 'DE,US')
     .split(',').map((m) => m.trim().toUpperCase()).filter(Boolean),
 };
@@ -255,6 +258,7 @@ function engineConfig(horizonHours) {
     horizonHours,
     threshold: config.threshold,
     topN: config.topN,
+    candleTtlMs: config.candleTtlMinutes > 0 ? config.candleTtlMinutes * 60000 : null,
   };
 }
 

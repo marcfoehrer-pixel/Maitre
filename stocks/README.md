@@ -15,7 +15,7 @@ Starten per Doppelklick auf `Dashboard starten.command` (macOS) bzw.
 ```bash
 npm run stocks          # Live-Betrieb im eigenen WLAN
 npm run stocks:public   # zusätzlich hinter einem Tunnel erreichbar
-npm run test:stocks     # 80 Tests
+npm run test:stocks     # 88 Tests
 ```
 
 ---
@@ -182,11 +182,51 @@ Ab dann ist das Dashboard jederzeit erreichbar — im WLAN, im Mobilfunknetz,
   Start, wenn keines gesetzt ist: ein automatisch erzeugtes wäre nach jedem
   Neustart ein anderes, und Sie kämen unvorhersehbar nicht mehr hinein.
 - **Abrufe kommen aus einem Rechenzentrum.** Yahoo Finance drosselt solche
-  Adressen häufiger als private Anschlüsse. Fällt die Quelle aus, sagt das
-  Dashboard es über die Quellen-Ampel, statt Zahlen zu erfinden. Deshalb ist
-  die Aktualisierung dort auf 120 s gesetzt statt auf 60 s.
+  Adressen deutlich früher als private Anschlüsse — im Betrieb trat genau das
+  als HTTP 429 auf. Die Voreinstellungen für Render (24 Titel, 15 Minuten
+  Haltedauer) halten die Last bei rund 96 Abfragen je Stunde. Mehr Titel oder
+  kürzere Haltedauer gehen zu Lasten der Zuverlässigkeit; siehe
+  „Wenn das Portal drosselt".
 - **`render.yaml` zeigt auf den Entwicklungszweig.** Wird der Pull Request
   zusammengeführt und der Zweig gelöscht, dort auf den Hauptzweig umstellen.
+
+### Wenn das Portal drosselt (HTTP 429)
+
+Yahoo begrenzt die Zahl der Abfragen je Adresse und tut das bei
+Rechenzentren deutlich früher als bei privaten Anschlüssen. Im Betrieb auf
+Render trat genau das auf: jede Abfrage kam als **HTTP 429** zurück.
+
+Der Fehler lag dabei nicht nur bei Yahoo — das Dashboard machte es selbst
+schlimmer. Bei einem Fehlschlag probierte jeder Titel einen **zweiten Host**,
+und `429` wurde zusätzlich **wiederholt**. Aus 43 Titeln wurden so 86
+abgewiesene Anfragen je Durchlauf, alle zwei Minuten. Die Drosselung hielt
+sich damit selbst am Leben.
+
+Dagegen greifen jetzt vier Vorkehrungen:
+
+| | |
+| --- | --- |
+| **Keine Wiederholung bei 429** | Eine Wiederholung ist bei „zu viele Anfragen" genau das Falsche. Der zweite Host wird ebenfalls nicht mehr probiert — beide teilen sich dieselbe Begrenzung. |
+| **Sperre mit wachsender Wartezeit** | Nach einer Abweisung pausieren alle Abfragen: 1, 2, 4 … bis 20 Minuten, oder so lange wie im `Retry-After` genannt. Beim ersten Erfolg fällt die Sperre sofort. |
+| **Zwischenspeicher** | Fünfminutenkerzen alle zwei Minuten neu zu holen war reine Zusatzlast. Geholt wird nur, was älter ist als die Haltedauer. **Das ist der wirksamste Hebel:** die Last ergibt sich aus Titelzahl ÷ Haltedauer, nicht aus dem Aktualisierungstakt. |
+| **Obergrenze je Durchlauf** | Beim Kaltstart gehen nicht alle Titel auf einmal los, sondern verteilt über wenige Durchläufe. |
+
+Rechenbeispiel — die Zahl steht auch in der Fußzeile des Dashboards:
+
+| Titel | Haltedauer | Abfragen/Stunde | |
+| --- | --- | --- | --- |
+| 40 | 5 min | 480 | führte zu HTTP 429 |
+| 40 | 10 min | 240 | grenzwertig |
+| **24** | **15 min** | **96** | Voreinstellung für den Internet-Betrieb |
+
+Für den Betrieb im eigenen WLAN sind die Grenzen großzügiger; dort gilt als
+Haltedauer das Doppelte des Kerzenrasters (10 Minuten bei 5-Minuten-Kerzen).
+
+Drosselt die Quelle dennoch, zeigt das Dashboard **den zuletzt abgerufenen
+Stand weiter** — mit Zeitangabe an jeder Karte („Abruf vor 12 min") und einem
+Hinweis, wie lange die Sperre noch läuft. Erst wenn der Zwischenstand älter
+als 45 Minuten ist, verschwindet er. Ein ausgewiesener Kurs von vor zehn
+Minuten ist brauchbar; ihn aus Prinzip wegzuwerfen wäre nur Datenverlust.
 
 ### Andere Anbieter
 
@@ -343,7 +383,7 @@ sondern vier Blickwinkel:
 
 | Portal | Rolle | Warum |
 | --- | --- | --- |
-| **Yahoo Finance** (Chart-API) | Intraday-Kerzen, OHLCV | Die einzige frei zugängliche Schnittstelle mit Minutenkerzen für deutsche *und* amerikanische Titel. Zwei Hosts als Rückfallebene. |
+| **Yahoo Finance** (Chart-API) | Intraday-Kerzen, OHLCV | Die einzige frei zugängliche Schnittstelle mit Minutenkerzen für deutsche *und* amerikanische Titel. Zwei Hosts als Rückfallebene — außer bei Drosselung, siehe unten. |
 | **Stooq** | unabhängige Zweitquelle für den letzten Kurs | Kontrolle, nicht Analyse: weichen zwei Portale deutlich ab, stimmt etwas nicht — dann wird die Wahrscheinlichkeit herabgestuft, statt woanders hingerechnet. Nur *frische* Kurse (< 45 min) werden verglichen; ein Schlusskurs von gestern weicht naturgemäß ab, das wäre kein Fehler, sondern Alter. |
 | **Yahoo-Nachrichten** (RSS) | Schlagzeilen der letzten 24 h | Signalwortzählung, deutsch und englisch. Bewusst grob und entsprechend klein gedeckelt: Nachrichten sollen eine Chartlage färben, nicht drehen. Wird nur für die Spitzenkandidaten abgerufen. |
 | **Leitindizes** (DAX, S&P 500, Nasdaq) | Marktlage je Region | Dieselbe Signalrechnung, andere Rolle: ein bullischer Einzeltitel im fallenden Gesamtmarkt verdient einen Abschlag. |
@@ -413,6 +453,7 @@ stocks/
   server.js              HTTP-Server, JSON-Schnittstelle, Live-Strom (SSE)
   lib/
     auth.js              Kennwort, signierte Sitzung, Versuchsbremse
+    throttle.js          Sperre nach Drosselung, mit wachsender Wartezeit
     indicators.js        reine Indikator-Mathematik, kausal
     features.js          Kerzen -> Merkmalsvektor -> Signalwert
     model.js             Signalwert -> kalibrierte Wahrscheinlichkeit
@@ -435,7 +476,7 @@ stocks/
     dashboard.js         Live-Verbindung, Zustand, Darstellung
   test/
     fixtures/kurse.js    deterministische Pruefstand-Kurse — nur für Tests
-    …                    80 Tests
+    …                    88 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -465,12 +506,14 @@ node stocks/server.js [Optionen]
 | `--top` | `5` | Länge der Rangliste |
 | `--password` | gemerkt/erzeugt | Zugangskennwort |
 | `--password-file` | `stocks/.kennwort` | Ablage des gemerkten Kennworts |
+| `--candle-ttl` | 2 × Kerzenraster | Haltedauer der Kursreihen in Minuten — wirksamster Hebel gegen Drosselung |
 | `--public` | aus | Betrieb hinter einem Tunnel: Kennwort verpflichtend, weitergereichte Absender und HTTPS-Angaben beachten |
 | `--no-auth` | aus | Zugangsschutz abschalten — nur im eigenen WLAN vertretbar |
 | `--host` | `0.0.0.0` | Adresse, an der gelauscht wird (`127.0.0.1` = nur dieser Rechner) |
 
 Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `LIMIT`, `MARKETS`,
-`HORIZON`, `THRESHOLD`, `TOP`, `INTERVAL`, `RANGE`, `DASHBOARD_PASSWORD`,
+`HORIZON`, `THRESHOLD`, `TOP`, `INTERVAL`, `RANGE`, `CANDLE_TTL_MIN`,
+`DASHBOARD_PASSWORD`,
 `PUBLIC`, `HOST`, `TRUST_PROXY`, `KENNWORT_DATEI`.
 
 ### Schnittstelle
@@ -501,7 +544,7 @@ gültige Sitzung voraus.
 npm run test:stocks
 ```
 
-80 Tests über sieben Dateien. Die wichtigsten prüfen nicht Funktionen,
+88 Tests über acht Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich
@@ -518,6 +561,8 @@ sondern **Zusagen**:
   die Rangliste leer und der echte Fehlergrund steht daneben. Erzeugte Kurse
   gibt es nur noch als Prüfstand unter `test/fixtures/`; sie erreichen die
   Rechnung ausschließlich über eine Einspeisung, die im Betrieb nie gesetzt ist.
+- *Bei HTTP 429 wird genau eine Anfrage gestellt, nicht zwei* — der Fehler,
+  der den Ausfall im Betrieb ausgelöst hat, kann so nicht zurückkehren.
 - *Ohne Anmeldung gibt der Server nichts heraus* — gegen einen echten,
   gestarteten Server, Pfad für Pfad. Diese Tests haben beim Schreiben eine
   Weiterleitung ohne Sicherheitskopfzeilen gefunden; seitdem werden die

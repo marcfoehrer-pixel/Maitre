@@ -27,14 +27,34 @@ async function request(url, { timeout = 8000, retries = 1, headers = {} } = {}) 
       });
       const body = await res.text();
       clearTimeout(timer);
-      if (!res.ok) {
-        lastError = `HTTP ${res.status}`;
-        // 4xx wiederholen bringt nichts — nur bei Server- und Netzfehlern erneut.
-        if (res.status < 500 && res.status !== 429) {
-          return { ok: false, status: res.status, error: lastError, ms: Date.now() - started };
-        }
-      } else {
-        return { ok: true, status: res.status, body, ms: Date.now() - started };
+      if (res.ok) {
+        return {
+          ok: true, status: res.status, body, headers: res.headers, ms: Date.now() - started,
+        };
+      }
+
+      lastError = `HTTP ${res.status}`;
+
+      // 429 heisst "zu viele Anfragen". Eine Wiederholung ist dann genau das
+      // Falsche — sie vertieft die Drosselung, statt sie abzuwarten. Frueher
+      // wurde hier wiederholt; das hielt die Sperre dauerhaft aufrecht.
+      if (res.status === 429) {
+        return {
+          ok: false,
+          status: 429,
+          error: lastError,
+          retryAfter: Number(res.headers.get('retry-after')) || 0,
+          headers: res.headers,
+          ms: Date.now() - started,
+        };
+      }
+
+      // Uebrige 4xx sind endgueltig; nur bei Serverfehlern lohnt ein erneuter Versuch.
+      if (res.status < 500) {
+        return {
+          ok: false, status: res.status, error: lastError, headers: res.headers,
+          ms: Date.now() - started,
+        };
       }
     } catch (err) {
       clearTimeout(timer);

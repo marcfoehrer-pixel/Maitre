@@ -28,10 +28,42 @@ const DEFAULTS = {
   threshold: 0.8,
   topN: 5,
   newsTop: 8,
-  batchSize: 6,
-  batchPauseMs: 250,
+  batchSize: 4,
+  batchPauseMs: 400,
   sparkBars: 78,
+  /**
+   * Hoechstzahl Kursabrufe je Durchlauf.
+   *
+   * Vierzig Titel im Zweiminutentakt sind zwanzig Anfragen pro Minute — aus
+   * einem Rechenzentrum genug, um von Yahoo gedrosselt zu werden. Mit
+   * Zwischenspeicher wird nur geholt, was aelter ist als ein Kerzenraster;
+   * die Obergrenze glaettet zusaetzlich den Kaltstart, bei dem sonst alle
+   * Titel auf einmal abgefragt wuerden.
+   */
+  fetchBudget: 20,
+  /**
+   * Haltedauer einer Kursreihe, bevor sie neu geholt wird.
+   *
+   * `null` bedeutet: das Doppelte des Kerzenrasters (bei 5-Minuten-Kerzen also
+   * 10 Minuten). Das ist der wichtigste Stellhebel gegen Drosselung — die
+   * Anfragen pro Stunde ergeben sich aus Titelzahl geteilt durch Haltedauer,
+   * nicht aus dem Aktualisierungstakt. Aus einem Rechenzentrum sollte man
+   * deutlich unter etwa 200 Anfragen je Stunde bleiben.
+   */
+  candleTtlMs: null,
+  /** Darueber hinaus wird ein zwischengespeicherter Stand nicht mehr gezeigt. */
+  cacheMaxAgeMs: 45 * 60 * 1000,
 };
+
+/**
+ * Zwischenspeicher der Kursreihen ueber Durchlaeufe hinweg.
+ *
+ * Fuenfminutenkerzen aendern sich alle fuenf Minuten — sie alle zwei Minuten
+ * neu zu holen war reine Zusatzlast. Der Speicher senkt die Anfragezahl auf
+ * etwa ein Drittel und haelt das Dashboard ausserdem arbeitsfaehig, waehrend
+ * eine Quelle gerade drosselt.
+ */
+const candleCache = new Map();
 
 const newsCache = new Map();
 const NEWS_TTL_MS = 10 * 60 * 1000;
@@ -102,13 +134,53 @@ async function loadSeries(entry, config) {
   });
 }
 
+const cacheKey = (entry, config) => `${entry.symbol}|${config.interval}|${config.range}`;
+
+/**
+ * Kursreihe holen — oder den zwischengespeicherten Stand verwenden.
+ *
+ * `refresh` entscheidet, ob dieser Titel in diesem Durchlauf an der Reihe ist.
+ * Scheitert der Abruf, wird ein noch brauchbarer Zwischenstand weiterbenutzt
+ * und als solcher gekennzeichnet — besser ein Kurs von vor zehn Minuten, klar
+ * ausgewiesen, als gar keiner.
+ */
+async function loadSeriesCached(entry, config, cache, refresh, now = Date.now()) {
+  const key = cacheKey(entry, config);
+  const hit = cache.get(key);
+
+  if (!refresh && hit) {
+    return { ...hit.res, fromCache: true, dataAge: now - hit.at };
+  }
+  if (!refresh && !hit) {
+    return { ok: false, source: 'Yahoo Finance', symbol: entry.symbol, error: 'noch nicht abgerufen' };
+  }
+
+  const res = await loadSeries(entry, config);
+  if (res.ok) {
+    cache.set(key, { res, at: now });
+    return { ...res, dataAge: 0 };
+  }
+  if (hit && now - hit.at < config.cacheMaxAgeMs) {
+    return {
+      ...hit.res, fromCache: true, dataAge: now - hit.at,
+      fetchError: res.error, throttled: Boolean(res.throttled),
+    };
+  }
+  return res;
+}
+
 /** Marktlage je Region aus dem Leitindex — derselbe Signalwert, andere Rolle. */
-async function loadRegime(config) {
+async function loadRegime(config, cache, now, ttl) {
   const out = {};
   const benches = universe.BENCHMARKS.filter((b) => config.markets.includes(b.market));
   await Promise.all(
     benches.map(async (b) => {
-      const res = await loadSeries(b, config);
+      // Leitindizes ebenfalls nach Alter: sie aendern sich nicht schneller als
+      // die Einzeltitel, und drei Abrufe je Durchlauf sind bei einer
+      // gedrosselten Quelle drei zu viel.
+      const hit = cache.get(cacheKey(b, config));
+      const faellig = !hit || now - hit.at >= ttl;
+      const res = await loadSeriesCached(b, config, cache, faellig, now);
       if (!res.ok || res.candles.length < features.WARMUP + 2) return;
       const { scores } = features.scoreSeries(res.candles);
       const z = scores[scores.length - 1];
@@ -154,6 +226,30 @@ async function runCycle(userConfig = {}) {
   const horizonMinutes = config.horizonHours * 60;
 
   const list = universe.select({ markets: config.markets, limit: config.limit });
+  const now = Date.now();
+
+  // Tests speisen eigene Kurse ein und bekommen dann auch einen eigenen
+  // Zwischenspeicher — sonst truegen Ergebnisse aus einem frueheren Testlauf
+  // in den naechsten hinein.
+  const cache = config.cache || (config.fetchSeries ? new Map() : candleCache);
+  const ttl = config.candleTtlMs || minutes * 2 * 60000;
+
+  /*
+   * Wer ist in diesem Durchlauf an der Reihe?
+   *
+   * Nur Titel, deren Stand aelter ist als ein Kerzenraster — und davon
+   * hoechstens `fetchBudget` viele, die aeltesten zuerst. Dadurch verteilen
+   * sich die Abrufe von selbst ueber mehrere Durchlaeufe, statt in einem
+   * Schwall loszugehen.
+   */
+  const faellig = list
+    .map((entry) => {
+      const hit = cache.get(cacheKey(entry, config));
+      return { entry, age: hit ? now - hit.at : Infinity };
+    })
+    .filter((x) => x.age >= ttl)
+    .sort((a, b) => b.age - a.age);
+  const refreshSet = new Set(faellig.slice(0, config.fetchBudget).map((x) => x.entry.symbol));
   const sourceStats = {
     'Yahoo Finance': { ok: 0, fail: 0, error: null },
     Stooq: { ok: 0, fail: 0, error: null },
@@ -161,9 +257,10 @@ async function runCycle(userConfig = {}) {
   };
 
   const [regime, quotes, seriesList] = await Promise.all([
-    loadRegime(config),
+    loadRegime(config, cache, now, ttl),
     stooq.fetchQuotes(list.map((s) => s.stooq)),
-    inBatches(list, config.batchSize, config.batchPauseMs, (entry) => loadSeries(entry, config)),
+    inBatches(list, config.batchSize, config.batchPauseMs, (entry) =>
+      loadSeriesCached(entry, config, cache, refreshSet.has(entry.symbol), now)),
   ]);
 
   if (quotes.ok) sourceStats.Stooq.ok = quotes.quotes.size;
@@ -178,6 +275,7 @@ async function runCycle(userConfig = {}) {
     const res = seriesList[i];
     if (res.ok) {
       sourceStats['Yahoo Finance'].ok += 1;
+      if (res.fetchError) sourceStats['Yahoo Finance'].error = res.fetchError;
     } else {
       sourceStats['Yahoo Finance'].fail += 1;
       sourceStats['Yahoo Finance'].error = res.error;
@@ -308,6 +406,10 @@ async function runCycle(userConfig = {}) {
       stale,
       lastCandle: candle.t,
       ageSeconds,
+      // Wie alt ist der zugrunde liegende Abruf? Bei Drosselung wird ein
+      // zwischengespeicherter Stand weiterbenutzt — das gehoert ausgewiesen.
+      fromCache: Boolean(res.fromCache),
+      dataAgeSeconds: Math.round((res.dataAge || 0) / 1000),
       spark: sparkline(candles, config.sparkBars),
       news: null,
     };
@@ -398,6 +500,8 @@ async function runCycle(userConfig = {}) {
       friction: config.friction,
       threshold: config.threshold,
       topN: config.topN,
+      candleTtlMinutes: Math.round(ttl / 60000),
+      requestsPerHour: Math.round((list.length * 3600000) / ttl),
     },
     market: regime,
     openMarkets,
@@ -431,6 +535,11 @@ async function runCycle(userConfig = {}) {
     // nicht als leere Rangliste — sonst sieht "nichts gefunden" aus wie
     // "nichts dabei".
     noData: items.length === 0,
+    // Zustand der Drosselung: die Oberflaeche soll "Quelle pausiert" von
+    // "Quelle kaputt" unterscheiden koennen.
+    throttle: config.fetchSeries ? { blocked: false, secondsLeft: 0 } : yahoo.throttleState(),
+    fetched: refreshSet.size,
+    cached: list.length - refreshSet.size,
     skipped,
   };
 }
