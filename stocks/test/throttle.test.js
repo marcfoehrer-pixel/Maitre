@@ -112,21 +112,41 @@ test('Bei Drosselung wird der zwischengespeicherte Stand weiterbenutzt', async (
 });
 
 test('Ein zu alter Zwischenstand wird nicht mehr gezeigt', async () => {
+  // Zwei Tage alt — das liegt ueber jeder Grenze, auch der grosszuegigen fuer
+  // geschlossene Boersen. Damit ist der Test unabhaengig von der Uhrzeit.
   const cache = new Map();
   await runCycle({ fetchSeries, cache, limit: 4, fetchBudget: 40 });
-  // Den Speicher kuenstlich altern lassen.
-  for (const [, eintrag] of cache) eintrag.at = Date.now() - 3 * 3600 * 1000;
+  for (const [, eintrag] of cache) eintrag.at = Date.now() - 48 * 3600 * 1000;
 
   const snap = await runCycle({
     cache,
     limit: 4,
     fetchBudget: 40,
     candleTtlMs: 1,
-    cacheMaxAgeMs: 45 * 60 * 1000,
     fetchSeries: () => ({ ok: false, source: 'Yahoo Finance', error: 'HTTP 429', throttled: true }),
   });
-  assert.strictEqual(snap.watchlist.length, 0, 'drei Stunden alte Kurse wurden angezeigt');
+  assert.strictEqual(snap.watchlist.length, 0, 'zwei Tage alte Kurse wurden angezeigt');
   assert.strictEqual(snap.noData, true);
+});
+
+test('Nach Handelsschluss gilt eine grosszuegigere Altersgrenze', async () => {
+  // Ein drei Stunden alter Kurs ist nach Boersenschluss kein veralteter Kurs,
+  // sondern der Schlusskurs. Waehrend des Handels waere er unbrauchbar.
+  const cache = new Map();
+  await runCycle({ fetchSeries, cache, limit: 4, fetchBudget: 40, markets: ['DE'] });
+  for (const [, eintrag] of cache) eintrag.at = Date.now() - 3 * 3600 * 1000;
+
+  const snap = await runCycle({
+    cache, limit: 4, fetchBudget: 40, markets: ['DE'], candleTtlMs: 1,
+    fetchSeries: () => ({ ok: false, source: 'Yahoo Finance', error: 'HTTP 429', throttled: true }),
+  });
+  const xetraOffen = snap.venues.DE.open;
+  if (xetraOffen) {
+    assert.strictEqual(snap.watchlist.length, 0, 'waehrend des Handels sind 3 h zu alt');
+  } else {
+    assert.strictEqual(snap.watchlist.length, 4, 'nach Schluss ist der Schlusskurs gueltig');
+    assert.ok(snap.ranking.every((i) => i.fromCache === true));
+  }
 });
 
 test('Die Last je Stunde wird ausgewiesen', async () => {

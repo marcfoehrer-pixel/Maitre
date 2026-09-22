@@ -8,65 +8,73 @@
  * `stooq` das Kuerzel der Zweitquelle.
  */
 
+// Spalten: Yahoo-Kuerzel · Name · Stooq-Kuerzel · Twelve-Data-Kuerzel
 const DE = [
-  ['SAP.DE', 'SAP', 'sap.de'],
-  ['SIE.DE', 'Siemens', 'sie.de'],
-  ['ALV.DE', 'Allianz', 'alv.de'],
-  ['DTE.DE', 'Deutsche Telekom', 'dte.de'],
-  ['AIR.DE', 'Airbus', 'air.de'],
-  ['MBG.DE', 'Mercedes-Benz', 'mbg.de'],
-  ['BMW.DE', 'BMW', 'bmw.de'],
-  ['VOW3.DE', 'Volkswagen Vz.', 'vow3.de'],
-  ['BAS.DE', 'BASF', 'bas.de'],
-  ['BAYN.DE', 'Bayer', 'bayn.de'],
-  ['DBK.DE', 'Deutsche Bank', 'dbk.de'],
-  ['MUV2.DE', 'Munich Re', 'muv2.de'],
-  ['IFX.DE', 'Infineon', 'ifx.de'],
-  ['RHM.DE', 'Rheinmetall', 'rhm.de'],
-  ['DHL.DE', 'DHL Group', 'dhl.de'],
-  ['ADS.DE', 'Adidas', 'ads.de'],
-  ['EOAN.DE', 'E.ON', 'eoan.de'],
-  ['RWE.DE', 'RWE', 'rwe.de'],
-  ['HEI.DE', 'Heidelberg Materials', 'hei.de'],
-  ['CBK.DE', 'Commerzbank', 'cbk.de'],
+  ['SAP.DE', 'SAP', 'sap.de', 'SAP'],
+  ['SIE.DE', 'Siemens', 'sie.de', 'SIE'],
+  ['ALV.DE', 'Allianz', 'alv.de', 'ALV'],
+  ['DTE.DE', 'Deutsche Telekom', 'dte.de', 'DTE'],
+  ['AIR.DE', 'Airbus', 'air.de', 'AIR'],
+  ['MBG.DE', 'Mercedes-Benz', 'mbg.de', 'MBG'],
+  ['BMW.DE', 'BMW', 'bmw.de', 'BMW'],
+  ['VOW3.DE', 'Volkswagen Vz.', 'vow3.de', 'VOW3'],
+  ['BAS.DE', 'BASF', 'bas.de', 'BAS'],
+  ['BAYN.DE', 'Bayer', 'bayn.de', 'BAYN'],
+  ['DBK.DE', 'Deutsche Bank', 'dbk.de', 'DBK'],
+  ['MUV2.DE', 'Munich Re', 'muv2.de', 'MUV2'],
+  ['IFX.DE', 'Infineon', 'ifx.de', 'IFX'],
+  ['RHM.DE', 'Rheinmetall', 'rhm.de', 'RHM'],
+  ['DHL.DE', 'DHL Group', 'dhl.de', 'DHL'],
+  ['ADS.DE', 'Adidas', 'ads.de', 'ADS'],
+  ['EOAN.DE', 'E.ON', 'eoan.de', 'EOAN'],
+  ['RWE.DE', 'RWE', 'rwe.de', 'RWE'],
+  ['HEI.DE', 'Heidelberg Materials', 'hei.de', 'HEI'],
+  ['CBK.DE', 'Commerzbank', 'cbk.de', 'CBK'],
 ];
 
 const US = [
-  ['AAPL', 'Apple', 'aapl.us'],
-  ['MSFT', 'Microsoft', 'msft.us'],
-  ['NVDA', 'Nvidia', 'nvda.us'],
-  ['AMZN', 'Amazon', 'amzn.us'],
-  ['GOOGL', 'Alphabet A', 'googl.us'],
-  ['META', 'Meta Platforms', 'meta.us'],
-  ['TSLA', 'Tesla', 'tsla.us'],
-  ['AMD', 'AMD', 'amd.us'],
-  ['AVGO', 'Broadcom', 'avgo.us'],
-  ['NFLX', 'Netflix', 'nflx.us'],
-  ['JPM', 'JPMorgan', 'jpm.us'],
-  ['XOM', 'Exxon Mobil', 'xom.us'],
-  ['UNH', 'UnitedHealth', 'unh.us'],
-  ['LLY', 'Eli Lilly', 'lly.us'],
-  ['COST', 'Costco', 'cost.us'],
-  ['PLTR', 'Palantir', 'pltr.us'],
-  ['COIN', 'Coinbase', 'coin.us'],
-  ['UBER', 'Uber', 'uber.us'],
-  ['CAT', 'Caterpillar', 'cat.us'],
-  ['BA', 'Boeing', 'ba.us'],
+  ['AAPL', 'Apple', 'aapl.us', 'AAPL'],
+  ['MSFT', 'Microsoft', 'msft.us', 'MSFT'],
+  ['NVDA', 'Nvidia', 'nvda.us', 'NVDA'],
+  ['AMZN', 'Amazon', 'amzn.us', 'AMZN'],
+  ['GOOGL', 'Alphabet A', 'googl.us', 'GOOGL'],
+  ['META', 'Meta Platforms', 'meta.us', 'META'],
+  ['TSLA', 'Tesla', 'tsla.us', 'TSLA'],
+  ['AMD', 'AMD', 'amd.us', 'AMD'],
+  ['AVGO', 'Broadcom', 'avgo.us', 'AVGO'],
+  ['NFLX', 'Netflix', 'nflx.us', 'NFLX'],
+  ['JPM', 'JPMorgan', 'jpm.us', 'JPM'],
+  ['XOM', 'Exxon Mobil', 'xom.us', 'XOM'],
+  ['UNH', 'UnitedHealth', 'unh.us', 'UNH'],
+  ['LLY', 'Eli Lilly', 'lly.us', 'LLY'],
+  ['COST', 'Costco', 'cost.us', 'COST'],
+  ['PLTR', 'Palantir', 'pltr.us', 'PLTR'],
+  ['COIN', 'Coinbase', 'coin.us', 'COIN'],
+  ['UBER', 'Uber', 'uber.us', 'UBER'],
+  ['CAT', 'Caterpillar', 'cat.us', 'CAT'],
+  ['BA', 'Boeing', 'ba.us', 'BA'],
 ];
 
-const build = (rows, venue, market, currency) =>
-  rows.map(([symbol, name, stooq]) => ({ symbol, name, stooq, venue, market, currency }));
+/**
+ * `td` ist das Kuerzel bei Twelve Data, `tdMic` die Boersenkennung dort.
+ * Ohne diese Angabe waere "SAP" mehrdeutig — es gibt den Titel an mehreren
+ * Handelsplaetzen mit unterschiedlichen Kursen.
+ */
+const build = (rows, venue, market, currency, tdMic) =>
+  rows.map(([symbol, name, stooq, td]) => ({
+    symbol, name, stooq, td, tdMic, venue, market, currency,
+  }));
 
 const UNIVERSE = [
-  ...build(DE, 'XETRA', 'DE', 'EUR'),
-  ...build(US, 'US', 'US', 'USD'),
+  ...build(DE, 'XETRA', 'DE', 'EUR', 'XETR'),
+  ...build(US, 'US', 'US', 'USD', null),
 ];
 
 /** Leitindizes fuer die Marktlage — gleiche Abfrage, andere Rolle. */
 const BENCHMARKS = [
-  { symbol: '^GDAXI', name: 'DAX', market: 'DE', venue: 'XETRA' },
-  { symbol: '^GSPC', name: 'S&P 500', market: 'US', venue: 'US' },
-  { symbol: '^IXIC', name: 'Nasdaq Composite', market: 'US', venue: 'US' },
+  { symbol: '^GDAXI', name: 'DAX', market: 'DE', venue: 'XETRA', td: 'DAX' },
+  { symbol: '^GSPC', name: 'S&P 500', market: 'US', venue: 'US', td: 'SPX' },
+  { symbol: '^IXIC', name: 'Nasdaq Composite', market: 'US', venue: 'US', td: 'IXIC' },
 ];
 
 function select({ markets = ['DE', 'US'], limit = 0 } = {}) {

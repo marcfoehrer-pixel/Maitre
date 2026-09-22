@@ -267,6 +267,24 @@
 
     // Die Quelle pausiert von "die Quelle ist kaputt" trennen — das eine
     // geht von selbst vorbei, das andere nicht.
+    // Fehlt der Zweitanbieter und Yahoo weist ab, ist das kein voruebergehender
+    // Ausfall, sondern eine fehlende Einstellung — das muss man unterscheiden
+    // koennen, sonst wartet man auf eine Besserung, die nie kommt.
+    const kursquellen = (snap.sources || []).filter((q) => /Yahoo Finance|Twelve Data/.test(q.name));
+    const hatZweitquelle = kursquellen.some((q) => q.name === 'Twelve Data');
+    if (snap.noData && !hatZweitquelle && kursquellen.some((q) => q.status === 'down')) {
+      notices.push({
+        level: 'critical',
+        icon: '🔑',
+        title: 'Yahoo weist diesen Server ab — eine zweite Kursquelle fehlt.',
+        body:
+          'Yahoo Finance lehnt Anfragen aus Rechenzentren wegen ihrer Herkunft ab, nicht ' +
+          'wegen ihrer Menge; auch weniger Abfragen ändern daran nichts. Abhilfe: einen ' +
+          'kostenlosen Schlüssel bei twelvedata.com holen und beim Anbieter als ' +
+          'TWELVEDATA_API_KEY hinterlegen. Im eigenen WLAN ist das nicht nötig.',
+      });
+    }
+
     if (snap.throttle && snap.throttle.blocked) {
       notices.push({
         level: 'warning',

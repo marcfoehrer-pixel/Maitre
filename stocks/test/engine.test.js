@@ -128,8 +128,20 @@ test('Kein Titel traegt eine Demo-Kennzeichnung', async () => {
   const snap = await cycle;
   assert.ok(snap.ranking.every((i) => !('demo' in i)));
   assert.ok(snap.watchlist.every((w) => !('demo' in w)));
-  assert.ok(!snap.sources.some((q) => /Demo|Pruefstand/.test(q.name)),
-    'eine Ersatzquelle taucht in der Quellenliste auf');
+  // Im Test benennt sich die Einspeisung als "Pruefstand" — genau richtig:
+  // eine Quelle soll immer sagen, was sie ist.
+  assert.ok(snap.ranking.every((i) => i.sources.includes('Pruefstand')));
+});
+
+test('Im Betrieb stehen ausschliesslich echte Kursquellen in der Kette', async () => {
+  // Ohne Einspeisung darf nichts Erzeugtes erreichbar sein — weder als
+  // Rueckfall noch als benannte Quelle.
+  const snap = await runCycle({ limit: 2 });
+  const namen = snap.sources.map((q) => q.name);
+  assert.ok(namen.length > 0);
+  for (const name of namen) {
+    assert.ok(/Yahoo|Stooq|Twelve Data/.test(name), `unerwartete Quelle: ${name}`);
+  }
 });
 
 test('Ein laengerer Horizont aendert die Balkenzahl und die Schaetzung', async () => {

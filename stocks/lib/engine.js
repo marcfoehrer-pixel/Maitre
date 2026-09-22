@@ -10,6 +10,7 @@
  */
 
 const yahoo = require('../providers/yahoo');
+const twelvedata = require('../providers/twelvedata');
 const stooq = require('../providers/stooq');
 const news = require('../providers/news');
 const features = require('./features');
@@ -53,6 +54,15 @@ const DEFAULTS = {
   candleTtlMs: null,
   /** Darueber hinaus wird ein zwischengespeicherter Stand nicht mehr gezeigt. */
   cacheMaxAgeMs: 45 * 60 * 1000,
+  /**
+   * Bei geschlossener Boerse gilt eine weitere Grenze.
+   *
+   * Ein drei Stunden alter Kurs ist nach Handelsschluss kein veralteter Kurs,
+   * sondern schlicht der Schlusskurs — er aendert sich bis zur naechsten
+   * Eroeffnung nicht mehr. Waehrend des Handels dagegen waeren drei Stunden
+   * ein Datenstand, auf den niemand schauen sollte.
+   */
+  closedMaxAgeMs: 14 * 3600 * 1000,
 };
 
 /**
@@ -127,11 +137,66 @@ async function cachedNews(symbol) {
  * `config.fetchSeries` ist ausschliesslich die Einspeisung der Tests
  * (stocks/test/fixtures/kurse.js) — im Betrieb ist sie nie gesetzt.
  */
-async function loadSeries(entry, config) {
-  if (config.fetchSeries) return config.fetchSeries(entry, config);
-  return yahoo.fetchCandles(entry.symbol, {
-    interval: config.interval, range: config.range,
+/**
+ * Reihenfolge der Kursquellen.
+ *
+ * Liegt ein Twelve-Data-Schluessel vor, kommt die Quelle zuerst: sie erlaubt
+ * den Serverbetrieb ausdruecklich, waehrend Yahoo Anfragen aus Rechenzentren
+ * wegen ihrer Herkunft abweist — unabhaengig von der Menge. Yahoo bleibt als
+ * Rueckfall, weil es im heimischen WLAN einwandfrei und ohne Schluessel laeuft.
+ */
+function providerChain(config) {
+  if (config.fetchSeries) return [{ name: 'Einspeisung', fetch: config.fetchSeries }];
+  const chain = [];
+  if (config.twelveDataKey) {
+    chain.push({
+      name: 'Twelve Data',
+      fetch: (entry, cfg) => twelvedata.fetchCandles(entry, {
+        interval: cfg.interval, range: cfg.range, apiKey: cfg.twelveDataKey,
+      }),
+    });
+  }
+  chain.push({
+    name: 'Yahoo Finance',
+    fetch: (entry, cfg) => yahoo.fetchCandles(entry.symbol, {
+      interval: cfg.interval, range: cfg.range,
+    }),
   });
+  return chain;
+}
+
+/**
+ * Kerzen holen — echte Kurse oder gar keine.
+ *
+ * Frueher fiel diese Stelle bei einem Portalausfall auf erzeugte Kurse zurueck.
+ * Das war der gefaehrlichste Zustand des ganzen Programms: eine Rangliste, die
+ * aussieht wie immer, aber auf Zahlen beruht, die nie ein Markt gebildet hat.
+ * Jetzt wird die naechste echte Quelle probiert; liefert keine, bleibt der
+ * Fehler stehen und der Titel wird uebersprungen.
+ */
+async function loadSeries(entry, config) {
+  const chain = providerChain(config);
+  const fehler = [];
+  const versuche = [];
+  let gedrosselt = false;
+  for (const provider of chain) {
+    const res = await provider.fetch(entry, config);
+    if (res.ok) return res;
+    if (res.throttled) gedrosselt = true;
+    versuche.push({ name: provider.name, error: res.error });
+    fehler.push(`${provider.name}: ${res.error}`);
+  }
+  return {
+    ok: false,
+    source: chain[0].name,
+    symbol: entry.symbol,
+    throttled: gedrosselt,
+    // Jede versuchte Quelle einzeln, damit die Ampeln den Zustand je Portal
+    // zeigen und nicht nur den der ersten.
+    attempts: versuche,
+    // Bei mehreren Quellen alle Gruende nennen — sonst sucht man am falschen Ende.
+    error: fehler.length === 1 ? fehler[0].split(': ').slice(1).join(': ') : fehler.join(' · '),
+  };
 }
 
 const cacheKey = (entry, config) => `${entry.symbol}|${config.interval}|${config.range}`;
@@ -147,12 +212,16 @@ const cacheKey = (entry, config) => `${entry.symbol}|${config.interval}|${config
 async function loadSeriesCached(entry, config, cache, refresh, now = Date.now()) {
   const key = cacheKey(entry, config);
   const hit = cache.get(key);
+  const offen = session.venueState(entry.venue || 'US', new Date(now)).open;
+  const maxAge = offen
+    ? config.cacheMaxAgeMs
+    : Math.max(config.cacheMaxAgeMs, config.closedMaxAgeMs);
+  const brauchbar = (eintrag) => eintrag && now - eintrag.at < maxAge;
 
-  if (!refresh && hit) {
-    return { ...hit.res, fromCache: true, dataAge: now - hit.at };
-  }
-  if (!refresh && !hit) {
-    return { ok: false, source: 'Yahoo Finance', symbol: entry.symbol, error: 'noch nicht abgerufen' };
+  if (!refresh) {
+    if (brauchbar(hit)) return { ...hit.res, fromCache: true, dataAge: now - hit.at };
+    if (hit) return { ok: false, source: hit.res.source, symbol: entry.symbol, error: 'Stand zu alt' };
+    return { ok: false, source: 'Kursquelle', symbol: entry.symbol, error: 'noch nicht abgerufen' };
   }
 
   const res = await loadSeries(entry, config);
@@ -160,10 +229,10 @@ async function loadSeriesCached(entry, config, cache, refresh, now = Date.now())
     cache.set(key, { res, at: now });
     return { ...res, dataAge: 0 };
   }
-  if (hit && now - hit.at < config.cacheMaxAgeMs) {
+  if (brauchbar(hit)) {
     return {
       ...hit.res, fromCache: true, dataAge: now - hit.at,
-      fetchError: res.error, throttled: Boolean(res.throttled),
+      fetchError: res.error, throttled: Boolean(res.throttled), attempts: res.attempts,
     };
   }
   return res;
@@ -202,6 +271,22 @@ async function loadRegime(config, cache, now, ttl) {
 }
 
 /** Gerundet uebertragen — vier Nachkommastellen genuegen und sparen Nutzlast. */
+/** Drosselung ueber alle Kursquellen zusammengefasst — fuer die Anzeige. */
+function throttleSummary(config) {
+  if (config.fetchSeries) return { blocked: false, secondsLeft: 0, sources: [] };
+  const zustaende = [
+    { name: 'Yahoo Finance', ...yahoo.throttleState() },
+    ...(config.twelveDataKey ? [{ name: 'Twelve Data', ...twelvedata.throttleState() }] : []),
+  ];
+  const gesperrt = zustaende.filter((z) => z.blocked);
+  return {
+    // Erst wenn ALLE Quellen pausieren, ist das Dashboard wirklich blockiert.
+    blocked: gesperrt.length > 0 && gesperrt.length === zustaende.length,
+    secondsLeft: Math.max(0, ...zustaende.map((z) => z.secondsLeft)),
+    sources: zustaende.map((z) => ({ name: z.name, blocked: z.blocked, secondsLeft: z.secondsLeft })),
+  };
+}
+
 function sparkline(candles, count) {
   return candles.slice(-count).map((c) => ({ t: c.t, c: Math.round(c.c * 10000) / 10000 }));
 }
@@ -245,16 +330,31 @@ async function runCycle(userConfig = {}) {
   const faellig = list
     .map((entry) => {
       const hit = cache.get(cacheKey(entry, config));
-      return { entry, age: hit ? now - hit.at : Infinity };
+      return { entry, age: hit ? now - hit.at : Infinity, hit };
     })
-    .filter((x) => x.age >= ttl)
+    .filter((x) => {
+      if (x.age < ttl) return false;
+      // Bei geschlossener Boerse aendert sich nichts mehr. Ein vorhandener
+      // Stand vom selben Handelstag reicht dann bis zur naechsten Eroeffnung —
+      // das spart bei knappen Tarifen den groessten Teil des Kontingents.
+      if (!x.hit) return true;
+      const geschlossen = !session.venueState(x.entry.venue || 'US', new Date(now)).open;
+      return !(geschlossen && x.age < 12 * 3600 * 1000);
+    })
     .sort((a, b) => b.age - a.age);
   const refreshSet = new Set(faellig.slice(0, config.fetchBudget).map((x) => x.entry.symbol));
-  const sourceStats = {
-    'Yahoo Finance': { ok: 0, fail: 0, error: null },
-    Stooq: { ok: 0, fail: 0, error: null },
-    'Yahoo News': { ok: 0, fail: 0, error: null },
+  const sourceStats = {};
+  const noteSource = (name, feld, detail) => {
+    if (!sourceStats[name]) sourceStats[name] = { ok: 0, fail: 0, error: null };
+    sourceStats[name][feld] += 1;
+    if (detail) sourceStats[name].error = detail;
   };
+  for (const provider of providerChain(config)) noteSource(provider.name, 'ok', null);
+  for (const name of Object.keys(sourceStats)) sourceStats[name].ok = 0;
+  noteSource('Stooq', 'ok', null);
+  sourceStats.Stooq.ok = 0;
+  noteSource('Yahoo News', 'ok', null);
+  sourceStats['Yahoo News'].ok = 0;
 
   const [regime, quotes, seriesList] = await Promise.all([
     loadRegime(config, cache, now, ttl),
@@ -274,11 +374,11 @@ async function runCycle(userConfig = {}) {
     const entry = list[i];
     const res = seriesList[i];
     if (res.ok) {
-      sourceStats['Yahoo Finance'].ok += 1;
-      if (res.fetchError) sourceStats['Yahoo Finance'].error = res.fetchError;
+      noteSource(res.source || 'Kursquelle', 'ok', res.fetchError || null);
+    } else if (res.attempts && res.attempts.length > 0) {
+      for (const versuch of res.attempts) noteSource(versuch.name, 'fail', versuch.error);
     } else {
-      sourceStats['Yahoo Finance'].fail += 1;
-      sourceStats['Yahoo Finance'].error = res.error;
+      noteSource(res.source || 'Kursquelle', 'fail', res.error);
     }
     if (!res.ok || res.candles.length < features.WARMUP + horizonBars + 5) {
       prepared.push({ entry, error: res.error || 'zu wenige Kerzen', res });
@@ -399,7 +499,7 @@ async function runCycle(userConfig = {}) {
         volumeRatio: volRef ? candle.v / volRef : null,
         percentB: p.boll.percentB[last],
       },
-      sources: ['Yahoo Finance', ...(quoteFresh ? ['Stooq'] : [])],
+      sources: [res.source || 'Kursquelle', ...(quoteFresh ? ['Stooq'] : [])],
       crossCheck: quote
         ? { price: quote.price, fresh: Boolean(quoteFresh), deviationPct: pct(deviation) }
         : null,
@@ -537,7 +637,7 @@ async function runCycle(userConfig = {}) {
     noData: items.length === 0,
     // Zustand der Drosselung: die Oberflaeche soll "Quelle pausiert" von
     // "Quelle kaputt" unterscheiden koennen.
-    throttle: config.fetchSeries ? { blocked: false, secondsLeft: 0 } : yahoo.throttleState(),
+    throttle: throttleSummary(config),
     fetched: refreshSet.size,
     cached: list.length - refreshSet.size,
     skipped,

@@ -15,7 +15,7 @@ Starten per Doppelklick auf `Dashboard starten.command` (macOS) bzw.
 ```bash
 npm run stocks          # Live-Betrieb im eigenen WLAN
 npm run stocks:public   # zusätzlich hinter einem Tunnel erreichbar
-npm run test:stocks     # 88 Tests
+npm run test:stocks     # 90 Tests
 ```
 
 ---
@@ -181,14 +181,37 @@ Ab dann ist das Dashboard jederzeit erreichbar — im WLAN, im Mobilfunknetz,
 - **Das Kennwort ist jetzt Pflicht.** Mit `--public` verweigert der Server den
   Start, wenn keines gesetzt ist: ein automatisch erzeugtes wäre nach jedem
   Neustart ein anderes, und Sie kämen unvorhersehbar nicht mehr hinein.
-- **Abrufe kommen aus einem Rechenzentrum.** Yahoo Finance drosselt solche
-  Adressen deutlich früher als private Anschlüsse — im Betrieb trat genau das
-  als HTTP 429 auf. Die Voreinstellungen für Render (24 Titel, 15 Minuten
-  Haltedauer) halten die Last bei rund 96 Abfragen je Stunde. Mehr Titel oder
-  kürzere Haltedauer gehen zu Lasten der Zuverlässigkeit; siehe
-  „Wenn das Portal drosselt".
+- **Im Internet-Betrieb braucht es einen Twelve-Data-Schlüssel.** Yahoo weist
+  Rechenzentren wegen ihrer Herkunft ab — daran ändert auch weniger Last
+  nichts. Der kostenlose Tarif ist eng (800 Abrufe je Tag); mehr Titel oder
+  kürzere Haltedauer gehen deshalb zu Lasten der Zuverlässigkeit.
 - **`render.yaml` zeigt auf den Entwicklungszweig.** Wird der Pull Request
   zusammengeführt und der Zweig gelöscht, dort auf den Hauptzweig umstellen.
+
+### Kursquelle für den Internet-Betrieb einrichten
+
+Im eigenen WLAN genügt Yahoo Finance — ohne Schlüssel, ohne Konto. **Auf einem
+gehosteten Server nicht:** Yahoo lehnt Anfragen aus Rechenzentren wegen ihrer
+Herkunft ab. Das zeigte sich im Betrieb als dauerhaftes `HTTP 429`, und zwar
+auch noch, nachdem die Anfragezahl von 480 auf 96 je Stunde gesenkt war. Gegen
+eine Sperre nach Herkunft hilft keine Zurückhaltung.
+
+Deshalb kommt für den Internet-Betrieb eine zweite Quelle davor:
+
+1. Auf **twelvedata.com** ein kostenloses Konto anlegen (E-Mail genügt).
+2. Den **API-Schlüssel** aus dem Bereich *API Keys* kopieren.
+3. Bei Render unter **Environment** eintragen:
+   `TWELVEDATA_API_KEY` = der Schlüssel. Dann *Save* — der Dienst startet neu.
+
+Ab dann gilt die Reihenfolge **Twelve Data → Yahoo Finance**: Die erste Quelle,
+die Kurse liefert, gewinnt; liefert keine, wird der Titel übersprungen und
+jeder Fehlergrund einzeln ausgewiesen. Welche Quelle einen Kurs geliefert hat,
+steht an jeder Karte.
+
+Der kostenlose Tarif erlaubt **800 Abrufe je Tag und 8 je Minute**. Die
+Voreinstellungen bleiben darunter: 20 Titel bei 15 Minuten Haltedauer sind
+rund 80 Abrufe je Stunde, und **außerhalb der Handelszeiten wird gar nicht
+abgerufen** — nach Börsenschluss ändert sich der Schlusskurs nicht mehr.
 
 ### Wenn das Portal drosselt (HTTP 429)
 
@@ -385,6 +408,7 @@ sondern vier Blickwinkel:
 | --- | --- | --- |
 | **Yahoo Finance** (Chart-API) | Intraday-Kerzen, OHLCV | Die einzige frei zugängliche Schnittstelle mit Minutenkerzen für deutsche *und* amerikanische Titel. Zwei Hosts als Rückfallebene — außer bei Drosselung, siehe unten. |
 | **Stooq** | unabhängige Zweitquelle für den letzten Kurs | Kontrolle, nicht Analyse: weichen zwei Portale deutlich ab, stimmt etwas nicht — dann wird die Wahrscheinlichkeit herabgestuft, statt woanders hingerechnet. Nur *frische* Kurse (< 45 min) werden verglichen; ein Schlusskurs von gestern weicht naturgemäß ab, das wäre kein Fehler, sondern Alter. |
+| **Twelve Data** (mit Schlüssel) | Intraday-Kerzen, Erstquelle im Internet-Betrieb | Yahoo weist Anfragen aus Rechenzentren wegen ihrer **Herkunft** ab, nicht wegen ihrer Menge. Twelve Data erlaubt den Serverbetrieb ausdrücklich und deckt Xetra und die US-Börsen ab. Kostenloser Tarif: 800 Abrufe je Tag. Ohne Schlüssel entfällt die Quelle stillschweigend. |
 | **Yahoo-Nachrichten** (RSS) | Schlagzeilen der letzten 24 h | Signalwortzählung, deutsch und englisch. Bewusst grob und entsprechend klein gedeckelt: Nachrichten sollen eine Chartlage färben, nicht drehen. Wird nur für die Spitzenkandidaten abgerufen. |
 | **Leitindizes** (DAX, S&P 500, Nasdaq) | Marktlage je Region | Dieselbe Signalrechnung, andere Rolle: ein bullischer Einzeltitel im fallenden Gesamtmarkt verdient einen Abschlag. |
 
@@ -462,7 +486,8 @@ stocks/
     session.js           Handelszeiten, Zeitzonen, Dämpfung
     http.js              Zeitlimit, Wiederholung, Stapelabruf
   providers/
-    yahoo.js             Intraday-Kerzen
+    twelvedata.js        Intraday-Kerzen mit Schluessel (Erstquelle im Netz)
+    yahoo.js             Intraday-Kerzen ohne Schluessel (Erstquelle im WLAN)
     stooq.js             Zweitquelle für den letzten Kurs
     news.js              Schlagzeilen und deren Bewertung
   public/
@@ -476,7 +501,7 @@ stocks/
     dashboard.js         Live-Verbindung, Zustand, Darstellung
   test/
     fixtures/kurse.js    deterministische Pruefstand-Kurse — nur für Tests
-    …                    88 Tests
+    …                    90 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -507,13 +532,14 @@ node stocks/server.js [Optionen]
 | `--password` | gemerkt/erzeugt | Zugangskennwort |
 | `--password-file` | `stocks/.kennwort` | Ablage des gemerkten Kennworts |
 | `--candle-ttl` | 2 × Kerzenraster | Haltedauer der Kursreihen in Minuten — wirksamster Hebel gegen Drosselung |
+| `--twelvedata-key` | – | Schlüssel für Twelve Data; ohne ihn bleibt nur Yahoo |
 | `--public` | aus | Betrieb hinter einem Tunnel: Kennwort verpflichtend, weitergereichte Absender und HTTPS-Angaben beachten |
 | `--no-auth` | aus | Zugangsschutz abschalten — nur im eigenen WLAN vertretbar |
 | `--host` | `0.0.0.0` | Adresse, an der gelauscht wird (`127.0.0.1` = nur dieser Rechner) |
 
 Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `LIMIT`, `MARKETS`,
 `HORIZON`, `THRESHOLD`, `TOP`, `INTERVAL`, `RANGE`, `CANDLE_TTL_MIN`,
-`DASHBOARD_PASSWORD`,
+`TWELVEDATA_API_KEY`, `DASHBOARD_PASSWORD`,
 `PUBLIC`, `HOST`, `TRUST_PROXY`, `KENNWORT_DATEI`.
 
 ### Schnittstelle
@@ -544,7 +570,7 @@ gültige Sitzung voraus.
 npm run test:stocks
 ```
 
-88 Tests über acht Dateien. Die wichtigsten prüfen nicht Funktionen,
+90 Tests über acht Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich

@@ -105,6 +105,9 @@ const config = {
   // Haltedauer der Kursreihen in Minuten — der wirksamste Hebel gegen
   // Drosselung durch das Portal.
   candleTtlMinutes: num(args['candle-ttl'] ?? process.env.CANDLE_TTL_MIN, 0),
+  // Optionaler Zweitanbieter. Ohne Schluessel bleibt es bei Yahoo — das
+  // genuegt im eigenen WLAN, scheitert aber im Rechenzentrum.
+  twelveDataKey: args['twelvedata-key'] || process.env.TWELVEDATA_API_KEY || null,
   markets: (args.markets || process.env.MARKETS || 'DE,US')
     .split(',').map((m) => m.trim().toUpperCase()).filter(Boolean),
 };
@@ -259,6 +262,7 @@ function engineConfig(horizonHours) {
     threshold: config.threshold,
     topN: config.topN,
     candleTtlMs: config.candleTtlMinutes > 0 ? config.candleTtlMinutes * 60000 : null,
+    twelveDataKey: config.twelveDataKey,
   };
 }
 
@@ -756,6 +760,14 @@ server.listen(config.port, config.host, () => {
     `  Stand: ${BUILD.commit || 'unbekannt'}${BUILD.branch ? ` (${BUILD.branch})` : ''} · ` +
       `Node ${BUILD.node}`
   );
+  parts.push(
+    `  Kursquellen: ${config.twelveDataKey ? 'Twelve Data, dann Yahoo Finance' : 'nur Yahoo Finance'}`
+  );
+  if (config.public && !config.twelveDataKey) {
+    parts.push('  HINWEIS: Yahoo weist Anfragen aus Rechenzentren haeufig ab (HTTP 429).');
+    parts.push('  Fuer den Internet-Betrieb einen kostenlosen Schluessel bei twelvedata.com');
+    parts.push('  holen und als TWELVEDATA_API_KEY setzen — siehe stocks/README.md.');
+  }
   parts.push(
     `  Maerkte: ${config.markets.join(', ')} · Titel: ${config.limit} · ` +
       `Raster: ${config.interval} · Horizont: ${config.horizonHours} h · ` +
