@@ -485,6 +485,11 @@ Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `LIMIT`, `MARKETS`,
 | `POST /api/logout` | Abmelden |
 | `GET /healthz` | Lebenszeichen für Überwachung, ohne Anmeldung |
 
+`GET /api/health` nennt unter `build` den laufenden Stand (Commit-Kennung,
+Startzeit, Node-Version). Dieselbe Angabe steht in der Fußzeile des
+Dashboards — damit lässt sich nach einer Veröffentlichung auf einen Blick
+prüfen, ob die neue Fassung bereits ausgerollt ist.
+
 Alles außer `/healthz`, der Anmeldeseite und den App-Symbolen setzt eine
 gültige Sitzung voraus.
 

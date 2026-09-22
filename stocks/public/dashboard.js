@@ -553,10 +553,18 @@
   function renderMeta() {
     const snap = state.snapshot;
     $('updatedAt').textContent = `${clock(snap.generatedAt)}`;
+    const build = snap.build || {};
     $('colophon').textContent =
       `Durchlauf ${snap.cycleMs} ms · ${snap.watchlist.length} Titel · Raster ${snap.config.interval} · ` +
       `Historie ${snap.config.range} · Aktualisierung alle ${snap.refreshSeconds || 60} s · ` +
-      `Schwelle serverseitig ${Math.round(snap.config.threshold * 100)} %, Anzeige ${Math.round(state.threshold * 100)} %.`;
+      `Schwelle serverseitig ${Math.round(snap.config.threshold * 100)} %, Anzeige ${Math.round(state.threshold * 100)} %.` +
+      // Damit nach einer Veroeffentlichung auf einen Blick feststeht, welcher
+      // Stand antwortet — ohne raten zu muessen, ob schon ausgerollt wurde.
+      (build.commit ? ` · Version ${build.commit}` : '') +
+      (build.startedAt
+        ? `, gestartet ${new Date(build.startedAt).toLocaleString('de-DE',
+            { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} Uhr`
+        : '');
     startCountdown();
   }
 

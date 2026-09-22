@@ -181,6 +181,45 @@ if (config.authEnabled && !config.password) {
 const sessionKey = config.authEnabled ? auth.deriveKey(config.password) : null;
 const loginLimiter = auth.createRateLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
 
+/**
+ * Welcher Stand laeuft hier eigentlich?
+ *
+ * Ohne diese Angabe ist nach einer Veroeffentlichung nicht feststellbar, ob
+ * die neue Fassung bereits ausgerollt ist oder noch die alte antwortet — man
+ * raet dann an der Oberflaeche herum. Gehosteter Betrieb liefert die Kennung
+ * ueber die Umgebung; lokal wird sie direkt aus dem Git-Verzeichnis gelesen,
+ * ohne ein Programm aufzurufen.
+ */
+function buildInfo() {
+  const fromEnv =
+    process.env.RENDER_GIT_COMMIT ||
+    process.env.SOURCE_VERSION ||
+    process.env.GIT_COMMIT ||
+    process.env.COMMIT_SHA;
+  let commit = fromEnv || null;
+
+  if (!commit) {
+    try {
+      const gitDir = path.join(__dirname, '..', '.git');
+      const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
+      commit = head.startsWith('ref: ')
+        ? fs.readFileSync(path.join(gitDir, head.slice(5)), 'utf8').trim()
+        : head;
+    } catch {
+      commit = null;   // veroeffentlicht ohne Git-Verzeichnis — dann eben ohne
+    }
+  }
+
+  return {
+    commit: commit ? commit.slice(0, 7) : null,
+    branch: process.env.RENDER_GIT_BRANCH || null,
+    startedAt: Date.now(),
+    node: process.version,
+  };
+}
+
+const BUILD = buildInfo();
+
 /** Zulaessige Prognosehorizonte — die Oberflaeche darf nur daraus waehlen. */
 const HORIZONS = [1, 2, 3, 4];
 
@@ -262,6 +301,7 @@ async function runRefresh(reason) {
   for (const horizon of horizons) {
     try {
       const snapshot = await runCycle(engineConfig(horizon));
+      snapshot.build = BUILD;
       snapshot.refreshSeconds = config.refreshSeconds;
       snapshot.nextRefreshAt = Date.now() + config.refreshSeconds * 1000;
       snapshots.set(horizon, snapshot);
@@ -566,6 +606,7 @@ async function route(req, res) {
   if (url.pathname === '/api/health') {
     sendJson(res, 200, {
       ok: true,
+      build: BUILD,
       horizons: [...activeHorizons],
       clients: clients.size,
       lastError,
@@ -707,6 +748,10 @@ server.listen(config.port, config.host, () => {
     parts.push(`  Kennwort gemerkt in ${PASSWORD_FILE} — zum Aendern Datei loeschen.`);
   }
 
+  parts.push(
+    `  Stand: ${BUILD.commit || 'unbekannt'}${BUILD.branch ? ` (${BUILD.branch})` : ''} · ` +
+      `Node ${BUILD.node}`
+  );
   parts.push(
     `  Maerkte: ${config.markets.join(', ')} · Titel: ${config.limit} · ` +
       `Raster: ${config.interval} · Horizont: ${config.horizonHours} h · ` +

@@ -187,6 +187,21 @@ test('Jede Antwort traegt die Sicherheitskopfzeilen', { timeout: 40000 }, async 
   });
 });
 
+test('Der Server weist aus, welcher Stand laeuft', { timeout: 40000 }, async () => {
+  // Ohne diese Angabe ist nach einer Veroeffentlichung nicht feststellbar, ob
+  // schon die neue Fassung antwortet — man raet dann an der Oberflaeche herum.
+  await withServer(['--password', PASSWORD], async (base) => {
+    const { cookie } = await login(base, PASSWORD);
+    const health = await (await fetch(`${base}/api/health`, { headers: { cookie } })).json();
+    assert.ok(health.build, 'keine Angabe zum laufenden Stand');
+    assert.match(health.build.node, /^v\d+\./);
+    assert.ok(health.build.startedAt > 0);
+    if (health.build.commit !== null) {
+      assert.match(health.build.commit, /^[0-9a-f]{7}$/, 'die Kennung ist kein Commit');
+    }
+  });
+});
+
 test('Die Aktualisierungsbremse schuetzt die Finanzportale', { timeout: 40000 }, async () => {
   await withServer(['--password', PASSWORD], async (base) => {
     const { cookie } = await login(base, PASSWORD);
