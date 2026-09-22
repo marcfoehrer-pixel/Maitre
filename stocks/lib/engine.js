@@ -12,7 +12,6 @@
 const yahoo = require('../providers/yahoo');
 const stooq = require('../providers/stooq');
 const news = require('../providers/news');
-const synthetic = require('../providers/synthetic');
 const features = require('./features');
 const model = require('./model');
 const session = require('./session');
@@ -29,7 +28,6 @@ const DEFAULTS = {
   threshold: 0.8,
   topN: 5,
   newsTop: 8,
-  offline: false,
   batchSize: 6,
   batchPauseMs: 250,
   sparkBars: 78,
@@ -85,20 +83,23 @@ async function cachedNews(symbol) {
   return value;
 }
 
-/** Kerzen holen — echtes Portal, bei Ausfall der Demo-Generator. */
+/**
+ * Kerzen holen — echte Kurse oder gar keine.
+ *
+ * Frueher fiel diese Stelle bei einem Portalausfall auf erzeugte Kurse zurueck.
+ * Das war der gefaehrlichste Zustand des ganzen Programms: eine Rangliste, die
+ * aussieht wie immer, aber auf Zahlen beruht, die nie ein Markt gebildet hat.
+ * Jetzt bleibt der Fehler stehen, der Titel wird uebersprungen und der Grund
+ * in der Oberflaeche ausgewiesen.
+ *
+ * `config.fetchSeries` ist ausschliesslich die Einspeisung der Tests
+ * (stocks/test/fixtures/kurse.js) — im Betrieb ist sie nie gesetzt.
+ */
 async function loadSeries(entry, config) {
-  if (config.offline) {
-    return synthetic.fetchCandles(entry.symbol, {
-      venue: entry.venue, interval: config.interval, range: config.range,
-    });
-  }
-  const res = await yahoo.fetchCandles(entry.symbol, {
+  if (config.fetchSeries) return config.fetchSeries(entry, config);
+  return yahoo.fetchCandles(entry.symbol, {
     interval: config.interval, range: config.range,
   });
-  if (res.ok) return res;
-  return { ...synthetic.fetchCandles(entry.symbol, {
-    venue: entry.venue, interval: config.interval, range: config.range,
-  }), fallbackFrom: res.error };
 }
 
 /** Marktlage je Region aus dem Leitindex — derselbe Signalwert, andere Rolle. */
@@ -120,7 +121,6 @@ async function loadRegime(config) {
         symbol: b.symbol,
         z,
         changePct: ref ? pct(last.c / ref - 1) : null,
-        demo: Boolean(res.demo),
       };
       // Mehrere Indizes je Region: der mit dem klareren Signal gibt den Ton an.
       if (!current || Math.abs(z) > Math.abs(current.z)) out[b.market] = item;
@@ -158,21 +158,16 @@ async function runCycle(userConfig = {}) {
     'Yahoo Finance': { ok: 0, fail: 0, error: null },
     Stooq: { ok: 0, fail: 0, error: null },
     'Yahoo News': { ok: 0, fail: 0, error: null },
-    'Demo-Generator': { ok: 0, fail: 0, error: null },
   };
 
   const [regime, quotes, seriesList] = await Promise.all([
     loadRegime(config),
-    config.offline
-      ? Promise.resolve({ ok: false, quotes: new Map(), error: 'Offline-Modus' })
-      : stooq.fetchQuotes(list.map((s) => s.stooq)),
+    stooq.fetchQuotes(list.map((s) => s.stooq)),
     inBatches(list, config.batchSize, config.batchPauseMs, (entry) => loadSeries(entry, config)),
   ]);
 
-  if (!config.offline) {
-    if (quotes.ok) sourceStats.Stooq.ok = quotes.quotes.size;
-    else sourceStats.Stooq.error = quotes.error;
-  }
+  if (quotes.ok) sourceStats.Stooq.ok = quotes.quotes.size;
+  else sourceStats.Stooq.error = quotes.error;
 
   // --- Schritt 1: technische Bewertung des gesamten Universums -------------
   const pooledSamples = [];
@@ -181,11 +176,11 @@ async function runCycle(userConfig = {}) {
   for (let i = 0; i < list.length; i++) {
     const entry = list[i];
     const res = seriesList[i];
-    if (res.demo) sourceStats['Demo-Generator'].ok += 1;
-    else if (res.ok) sourceStats['Yahoo Finance'].ok += 1;
-    if (res.fallbackFrom) {
+    if (res.ok) {
+      sourceStats['Yahoo Finance'].ok += 1;
+    } else {
       sourceStats['Yahoo Finance'].fail += 1;
-      sourceStats['Yahoo Finance'].error = res.fallbackFrom;
+      sourceStats['Yahoo Finance'].error = res.error;
     }
     if (!res.ok || res.candles.length < features.WARMUP + horizonBars + 5) {
       prepared.push({ entry, error: res.error || 'zu wenige Kerzen', res });
@@ -306,14 +301,10 @@ async function runCycle(userConfig = {}) {
         volumeRatio: volRef ? candle.v / volRef : null,
         percentB: p.boll.percentB[last],
       },
-      sources: [
-        res.demo ? 'Demo-Generator' : 'Yahoo Finance',
-        ...(quoteFresh ? ['Stooq'] : []),
-      ],
+      sources: ['Yahoo Finance', ...(quoteFresh ? ['Stooq'] : [])],
       crossCheck: quote
         ? { price: quote.price, fresh: Boolean(quoteFresh), deviationPct: pct(deviation) }
         : null,
-      demo: Boolean(res.demo),
       stale,
       lastCandle: candle.t,
       ageSeconds,
@@ -326,7 +317,7 @@ async function runCycle(userConfig = {}) {
   // --- Schritt 4: Nachrichten nur fuer die Spitzenkandidaten ---------------
   items.sort((a, b) => b.probability - a.probability);
   const newsTargets = items.slice(0, Math.max(config.topN, config.newsTop));
-  if (!config.offline && newsTargets.length > 0) {
+  if (newsTargets.length > 0) {
     await inBatches(newsTargets, 4, 200, async (item) => {
       const result = await cachedNews(item.symbol);
       if (result.ok) sourceStats['Yahoo News'].ok += 1;
@@ -399,6 +390,7 @@ async function runCycle(userConfig = {}) {
     cycleMs: Date.now() - started,
     config: {
       markets: config.markets,
+      limit: config.limit,
       interval: config.interval,
       range: config.range,
       horizonHours: config.horizonHours,
@@ -406,7 +398,6 @@ async function runCycle(userConfig = {}) {
       friction: config.friction,
       threshold: config.threshold,
       topN: config.topN,
-      offline: config.offline,
     },
     market: regime,
     openMarkets,
@@ -429,14 +420,17 @@ async function runCycle(userConfig = {}) {
       rank: i.rank, symbol: i.symbol, name: i.name, market: i.market, currency: i.currency,
       price: i.price, changePct: i.changePct, probability: i.probability, score: i.score,
       samples: i.samples, confidence: i.confidence, meetsThreshold: i.meetsThreshold,
-      sessionOpen: i.session.open, demo: i.demo, stale: i.stale,
+      sessionOpen: i.session.open, stale: i.stale,
       rsi: i.indicators.rsi, volumeRatio: i.indicators.volumeRatio,
     })),
     thresholdCount: items.filter((i) => i.meetsThreshold).length,
     thresholdCountByMarket: Object.fromEntries(
       config.markets.map((m) => [m, items.filter((i) => i.market === m && i.meetsThreshold).length])
     ),
-    demoData: items.length > 0 && items.every((i) => i.demo),
+    // Kein Titel auswertbar: die Oberflaeche muss das als Ausfall darstellen,
+    // nicht als leere Rangliste — sonst sieht "nichts gefunden" aus wie
+    // "nichts dabei".
+    noData: items.length === 0,
     skipped,
   };
 }

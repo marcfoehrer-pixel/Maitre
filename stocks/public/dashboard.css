@@ -330,7 +330,6 @@ main {
 .chip-de { border-color: var(--series-1); color: var(--series-1); }
 .chip-us { border-color: var(--series-2); color: var(--series-2); }
 .chip-warn { border-color: var(--warning); color: var(--text-primary); background: rgba(250, 178, 25, 0.14); }
-.chip-demo { border-color: var(--serious); color: var(--text-primary); background: rgba(236, 131, 90, 0.16); }
 .chip-good { border-color: var(--good); color: var(--good-ink); }
 
 .price { text-align: right; flex: none; }
@@ -551,7 +550,8 @@ input[type="range"] {
 .disclaimer { font-size: 0.8rem; color: var(--text-secondary); margin: 0; }
 .colophon { font-size: 0.72rem; color: var(--text-muted); margin: 10px 0 0; }
 
-.empty { padding: 24px; text-align: center; color: var(--text-secondary); font-size: 0.86rem; }
+.empty { padding: 24px; text-align: center; color: var(--text-secondary); font-size: 0.86rem; line-height: 1.6; }
+.empty strong { color: var(--text-primary); }
 
 /* ---------- Ab Tablet: Bedienleiste nach oben, mehrspaltig -------------------- */
 

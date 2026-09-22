@@ -4,10 +4,17 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { runCycle } = require('../lib/engine');
 const universe = require('../lib/universe');
+const { fetchSeries } = require('./fixtures/kurse');
 
-// Ein vollstaendiger Durchlauf gegen den Demo-Generator: kein Netz, aber
-// dieselbe Rechenkette wie im Echtbetrieb.
-const cycle = runCycle({ offline: true, limit: 12, horizonHours: 2 });
+/*
+ * Ein vollstaendiger Durchlauf gegen Pruefstand-Kurse: kein Netz, aber exakt
+ * dieselbe Rechenkette wie im Betrieb.
+ *
+ * Die Einspeisung ersetzt nur den Abruf. Sie ist der einzige Weg, erzeugte
+ * Kurse in die Rechnung zu bekommen — im Betrieb ist sie nie gesetzt, und
+ * genau deshalb kann das Dashboard keine erfundenen Zahlen anzeigen.
+ */
+const cycle = runCycle({ fetchSeries, limit: 12, horizonHours: 2 });
 
 test('Ein Durchlauf liefert eine vollstaendige Momentaufnahme', async () => {
   const snap = await cycle;
@@ -87,16 +94,47 @@ test('Am Wochenende wird zur Mitte gedaempft', async () => {
   }
 });
 
-test('Demo-Daten sind als solche gekennzeichnet', async () => {
+test('Es gibt keinen Rueckfall auf erzeugte Kurse', async () => {
+  // Der wichtigste Test dieser Datei. Faellt ein Portal aus, darf kein Titel
+  // mit erfundenen Zahlen in der Rangliste stehen — er wird uebersprungen.
+  const snap = await runCycle({
+    limit: 6,
+    fetchSeries: () => ({ ok: false, source: 'Yahoo Finance', error: 'HTTP 503' }),
+  });
+  assert.strictEqual(snap.ranking.length, 0, 'trotz Ausfall stand etwas in der Rangliste');
+  assert.strictEqual(snap.watchlist.length, 0);
+  assert.strictEqual(snap.noData, true, 'der Ausfall wird nicht als solcher gemeldet');
+  assert.strictEqual(snap.skipped.length, 6);
+  assert.ok(snap.skipped.every((x) => x.reason === 'HTTP 503'),
+    'der echte Grund geht verloren');
+  assert.ok(!('demoData' in snap), 'der Demo-Begriff existiert noch');
+});
+
+test('Ein einzelner Ausfall kippt nicht den ganzen Durchlauf', async () => {
+  const snap = await runCycle({
+    limit: 8,
+    fetchSeries: (entry, config) =>
+      entry.symbol === 'SAP.DE'
+        ? { ok: false, source: 'Yahoo Finance', error: 'Zeitlimit' }
+        : fetchSeries(entry, config),
+  });
+  assert.ok(snap.watchlist.length >= 6, 'zu viele Titel verloren');
+  assert.ok(!snap.watchlist.some((w) => w.symbol === 'SAP.DE'));
+  assert.deepStrictEqual(snap.skipped.map((x) => x.symbol), ['SAP.DE']);
+  assert.strictEqual(snap.noData, false);
+});
+
+test('Kein Titel traegt eine Demo-Kennzeichnung', async () => {
   const snap = await cycle;
-  assert.strictEqual(snap.demoData, true);
-  assert.ok(snap.ranking.every((i) => i.demo === true));
-  assert.ok(snap.sources.some((s) => s.name === 'Demo-Generator'));
+  assert.ok(snap.ranking.every((i) => !('demo' in i)));
+  assert.ok(snap.watchlist.every((w) => !('demo' in w)));
+  assert.ok(!snap.sources.some((q) => /Demo|Pruefstand/.test(q.name)),
+    'eine Ersatzquelle taucht in der Quellenliste auf');
 });
 
 test('Ein laengerer Horizont aendert die Balkenzahl und die Schaetzung', async () => {
-  const short = await runCycle({ offline: true, limit: 6, horizonHours: 1 });
-  const long = await runCycle({ offline: true, limit: 6, horizonHours: 4 });
+  const short = await runCycle({ fetchSeries, limit: 6, horizonHours: 1 });
+  const long = await runCycle({ fetchSeries, limit: 6, horizonHours: 4 });
   assert.strictEqual(short.config.horizonBars, 12);
   assert.strictEqual(long.config.horizonBars, 48);
   const bySymbol = (snap) => Object.fromEntries(snap.watchlist.map((w) => [w.symbol, w.probability]));
@@ -107,7 +145,7 @@ test('Ein laengerer Horizont aendert die Balkenzahl und die Schaetzung', async (
 });
 
 test('Ein Marktfilter schraenkt das Universum wirklich ein', async () => {
-  const snap = await runCycle({ offline: true, limit: 6, markets: ['DE'] });
+  const snap = await runCycle({ fetchSeries, limit: 6, markets: ['DE'] });
   assert.ok(snap.watchlist.every((w) => w.market === 'DE'));
   assert.deepStrictEqual(Object.keys(snap.venues), ['DE']);
 });
@@ -127,7 +165,7 @@ test('Zu kurze Zeitreihen werden uebersprungen statt geraten', async () => {
   // auf — unter der Woche liefert derselbe Zeitraum genug Balken, und der
   // Test schlug ohne jede Code-Aenderung fehl.
   const snap = await runCycle({
-    offline: true, limit: 4, range: '1d', interval: '30m', horizonHours: 4,
+    fetchSeries, limit: 4, range: '1d', interval: '30m', horizonHours: 4,
   });
   assert.strictEqual(snap.ranking.length, 0);
   assert.strictEqual(snap.skipped.length, 4);

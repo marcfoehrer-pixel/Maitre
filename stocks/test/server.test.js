@@ -11,6 +11,11 @@ const os = require('node:os');
 /**
  * Der Zugangsschutz am laufenden Server.
  *
+ * Diese Tests pruefen den Zugang, nicht die Kurse. Sie kommen deshalb ohne
+ * Netz aus: ob hinter der Tuer Daten liegen oder eine Ausfallmeldung, ist
+ * hier gleichgueltig — entscheidend ist allein, dass die Tuer zu ist, solange
+ * niemand angemeldet ist.
+ *
  * Absichtlich kein Nachbau der Weiche, sondern ein echter Start: die
  * gefaehrlichste Luecke waere ein Pfad, den die Weiche schlicht nicht sieht.
  * Das faellt nur auf, wenn man wirklich anklopft.
@@ -52,7 +57,7 @@ async function withServer(extraArgs, run) {
   );
   const child = spawn(
     process.execPath,
-    [SERVER, '--offline', '--limit', '4', '--port', String(port), '--host', '127.0.0.1',
+    [SERVER, '--limit', '4', '--port', String(port), '--host', '127.0.0.1',
       '--password-file', passwordFile, ...extraArgs],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
@@ -116,9 +121,11 @@ test('Nur das richtige Kennwort oeffnet die Tuer', { timeout: 40000 }, async () 
     assert.match(richtig.cookie, /^maitre_session=v1\./);
 
     const res = await fetch(`${base}/api/snapshot`, { headers: { cookie: richtig.cookie } });
-    assert.strictEqual(res.status, 200);
-    const snapshot = await res.json();
-    assert.ok(snapshot.ranking.length > 0);
+    assert.notStrictEqual(res.status, 401, 'die Sitzung wurde nicht anerkannt');
+    assert.notStrictEqual(res.status, 302);
+    // 200 mit Daten oder 503 ohne erreichbare Portale — beides heisst
+    // "angemeldet". Ob Kurse abrufbar sind, gehoert nicht in diesen Test.
+    assert.ok([200, 503].includes(res.status), `unerwarteter Status ${res.status}`);
   });
 });
 
@@ -226,7 +233,7 @@ test('Internet-Betrieb ohne gesetztes Kennwort wird verweigert', { timeout: 4000
   // erzeugtes Kennwort waere nach jedem Neustart ein anderes, und man kaeme
   // unvorhersehbar nicht mehr hinein.
   const port = await freePort();
-  const child = spawn(process.execPath, [SERVER, '--offline', '--public', '--port', String(port)],
+  const child = spawn(process.execPath, [SERVER, '--public', '--port', String(port)],
     { stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   child.stdout.on('data', (d) => { output += d; });
@@ -239,7 +246,7 @@ test('Internet-Betrieb ohne gesetztes Kennwort wird verweigert', { timeout: 4000
 test('Einstellungen lassen sich ueber die Umgebung setzen', { timeout: 40000 }, async () => {
   // Bei gehosteten Anbietern gibt es keine Aufrufparameter, nur Umgebung.
   const port = await freePort();
-  const child = spawn(process.execPath, [SERVER, '--offline', '--host', '127.0.0.1'], {
+  const child = spawn(process.execPath, [SERVER, '--host', '127.0.0.1'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: String(port), LIMIT: '6', HORIZON: '2',
       MARKETS: 'DE', DASHBOARD_PASSWORD: PASSWORD, PUBLIC: 'true' },
@@ -248,10 +255,13 @@ test('Einstellungen lassen sich ueber die Umgebung setzen', { timeout: 40000 }, 
     const base = `http://127.0.0.1:${port}`;
     await waitFor(base);
     const { cookie } = await login(base, PASSWORD);
-    const snapshot = await (await fetch(`${base}/api/snapshot`, { headers: { cookie } })).json();
-    assert.strictEqual(snapshot.watchlist.length, 6);
-    assert.strictEqual(snapshot.config.horizonHours, 2);
-    assert.deepStrictEqual(snapshot.config.markets, ['DE']);
+    const res = await fetch(`${base}/api/snapshot`, { headers: { cookie } });
+    const body = await res.json();
+    // Die Einstellungen stehen auch in der Ausfallantwort — sonst koennte die
+    // Oberflaeche bei gestoerten Portalen nicht einmal sagen, was eingestellt war.
+    assert.strictEqual(body.config.horizonHours, 2);
+    assert.deepStrictEqual(body.config.markets, ['DE']);
+    assert.strictEqual(body.config.limit, 6);
   } finally {
     child.kill('SIGKILL');
   }
@@ -261,7 +271,7 @@ test('Offen erreichbar ohne Kennwort wird verweigert', { timeout: 40000 }, async
   const port = await freePort();
   const child = spawn(
     process.execPath,
-    [SERVER, '--offline', '--public', '--no-auth', '--port', String(port)],
+    [SERVER, '--public', '--no-auth', '--port', String(port)],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   let output = '';

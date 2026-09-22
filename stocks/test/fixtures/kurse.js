@@ -1,16 +1,18 @@
 'use strict';
 
 /**
- * Ersatzquelle fuer den Offline-Betrieb.
+ * Pruefstand-Kursreihen fuer die Tests.
  *
- * Kein Prognosewerkzeug, sondern ein Pruefstand: deterministische Kursreihen,
- * damit Tests reproduzierbar sind und das Dashboard auch ohne Netz (oder hinter
- * einer Firewall, die Finanzportale blockt) vollstaendig bedienbar bleibt.
- * Jede so erzeugte Zeile wird in der Oberflaeche als Demo-Daten markiert —
- * sie darf niemals wie ein echter Kurs aussehen.
+ * Deterministisch erzeugt, damit Testlaeufe reproduzierbar sind und ohne Netz
+ * auskommen.
+ *
+ * Diese Datei liegt bewusst unter test/ und nicht bei den Providern: erzeugte
+ * Kurse duerfen den Betrieb niemals erreichen. Das Dashboard zeigt echte Kurse
+ * oder gar keine — ein Titel ohne abrufbare Daten wird uebersprungen und der
+ * Grund ausgewiesen, statt eine Zahl zu erfinden.
  */
 
-const { VENUES, zonedTimeToUtc, zonedDateParts } = require('../lib/session');
+const { VENUES, zonedTimeToUtc, zonedDateParts } = require('../../lib/session');
 
 /** Kleiner, schneller, deterministischer Zufallsgenerator. */
 function mulberry32(seed) {
@@ -104,21 +106,32 @@ function fetchCandles(symbol, { venue = 'US', interval = '5m', range = '5d', now
   const first = candles[0];
   return {
     ok: candles.length > 0,
-    source: 'Demo-Generator',
-    demo: true,
+    source: 'Pruefstand',
     symbol,
     candles,
     meta: {
       symbol,
       currency: venue === 'XETRA' ? 'EUR' : 'USD',
-      exchange: 'Demo',
+      exchange: 'Pruefstand',
       price: last ? last.c : null,
       previousClose: first ? first.o : null,
       quoteTime: last ? last.t : null,
       volume: last ? last.v : 0,
     },
-    error: candles.length === 0 ? 'keine Demo-Kerzen erzeugbar' : null,
+    error: candles.length === 0 ? 'keine Pruefstand-Kerzen erzeugbar' : null,
   };
 }
 
-module.exports = { fetchCandles, buildCandles, mulberry32, hash };
+/**
+ * Einspeisung fuer runCycle: dieselbe Form wie der echte Abruf, damit die
+ * Rechenkette im Test exakt dieselbe ist wie im Betrieb.
+ */
+function fetchSeries(entry, config) {
+  return fetchCandles(entry.symbol, {
+    venue: entry.venue,
+    interval: config.interval,
+    range: config.range,
+  });
+}
+
+module.exports = { fetchCandles, fetchSeries, buildCandles, mulberry32, hash };

@@ -79,6 +79,13 @@ const flag = (value, fallback = false) => {
  */
 const isPublic = flag(args.public ?? process.env.PUBLIC);
 
+if (args.offline !== undefined || process.env.OFFLINE) {
+  console.warn(
+    '[Hinweis] --offline gibt es nicht mehr. Das Dashboard zeigt ausschliesslich\n' +
+      '          echte Kurse; ein Titel ohne abrufbare Daten wird uebersprungen.'
+  );
+}
+
 const config = {
   host: args.host || process.env.HOST || '0.0.0.0',
   password: args.password || process.env.DASHBOARD_PASSWORD || null,
@@ -87,7 +94,6 @@ const config = {
   trustProxy: isPublic || flag(args['trust-proxy'] ?? process.env.TRUST_PROXY),
   port: num(args.port ?? process.env.PORT, 4173),
   refreshSeconds: Math.max(20, num(args.refresh ?? process.env.REFRESH, 60)),
-  offline: (args.offline ?? process.env.OFFLINE ?? 'false') !== 'false',
   // Durchweg auch als Umgebungsvariable: gehostete Umgebungen kennen keine
   // Aufrufparameter, dort wird alles ueber die Umgebung gesetzt.
   limit: num(args.limit ?? process.env.LIMIT, DEFAULTS.limit),
@@ -198,7 +204,7 @@ let lastManualRefresh = 0;
 const snapshots = new Map();  // horizonHours -> snapshot
 const clients = new Set();    // { res, horizon }
 let activeHorizons = new Set([config.horizonHours]);
-let cycleRunning = false;
+let cyclePromise = null;   // laeuft gerade ein Durchlauf? dann dieser
 let lastError = null;
 
 function engineConfig(horizonHours) {
@@ -210,7 +216,6 @@ function engineConfig(horizonHours) {
     horizonHours,
     threshold: config.threshold,
     topN: config.topN,
-    offline: config.offline,
   };
 }
 
@@ -237,9 +242,21 @@ function broadcastStatus(status) {
   }
 }
 
-async function refresh(reason = 'intervall') {
-  if (cycleRunning) return;
-  cycleRunning = true;
+/**
+ * Ein Abrufzyklus.
+ *
+ * Laeuft bereits einer, wird dessen Zusage zurueckgegeben statt einer zweiten
+ * Runde. Wichtig fuer den ersten Aufruf: wer waehrend des Startdurchlaufs die
+ * Seite oeffnet, soll dessen Ergebnis bekommen — vorher lief er in einen
+ * Fehler "noch keine Daten", obwohl die Daten Sekunden spaeter da waren.
+ */
+function refresh(reason = 'intervall') {
+  if (cyclePromise) return cyclePromise;
+  cyclePromise = runRefresh(reason).finally(() => { cyclePromise = null; });
+  return cyclePromise;
+}
+
+async function runRefresh(reason) {
   const horizons = [...activeHorizons];
   broadcastStatus({ state: 'laeuft', reason, at: Date.now() });
   for (const horizon of horizons) {
@@ -263,7 +280,6 @@ async function refresh(reason = 'intervall') {
       broadcastStatus({ state: 'fehler', message: err.message, at: Date.now() });
     }
   }
-  cycleRunning = false;
   broadcastStatus({
     state: 'bereit',
     at: Date.now(),
@@ -474,10 +490,18 @@ async function route(req, res) {
   if (url.pathname === '/api/snapshot') {
     const horizon = pickHorizon(url.searchParams.get('horizon'));
     activeHorizons.add(horizon);
+    // Zweimal: der erste Durchlauf kann fuer einen anderen Horizont gelaufen
+    // sein — dann setzt der zweite Aufruf einen eigenen an.
+    if (!snapshots.has(horizon)) await refresh('erstabruf');
     if (!snapshots.has(horizon)) await refresh('erstabruf');
     const snapshot = snapshots.get(horizon);
     if (!snapshot) {
-      sendJson(res, 503, { error: lastError || 'noch keine Daten' });
+      sendJson(res, 503, {
+        error: lastError || 'noch keine Daten',
+        // Die Oberflaeche soll auch im Fehlerfall benennen koennen, was
+        // eingestellt war und welche Quelle klemmt.
+        config: engineConfig(horizon),
+      });
       return;
     }
     sendJson(res, 200, snapshot);
@@ -542,7 +566,6 @@ async function route(req, res) {
   if (url.pathname === '/api/health') {
     sendJson(res, 200, {
       ok: true,
-      offline: config.offline,
       horizons: [...activeHorizons],
       clients: clients.size,
       lastError,
@@ -689,7 +712,6 @@ server.listen(config.port, config.host, () => {
       `Raster: ${config.interval} · Horizont: ${config.horizonHours} h · ` +
       `Aktualisierung: alle ${config.refreshSeconds} s`
   );
-  if (config.offline) parts.push('  MODUS: offline — Demo-Daten, keine echten Kurse.');
   if (config.public) {
     parts.push('');
     parts.push('  Betrieb hinter Tunnel: weitergereichte Absender werden beachtet.');

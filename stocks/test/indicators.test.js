@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ind = require('../lib/indicators');
 const features = require('../lib/features');
-const synthetic = require('../providers/synthetic');
+const fixture = require('./fixtures/kurse');
 
 const close = (values) =>
   values.map((v, i) => ({ t: i * 300000, o: v, h: v + 0.5, l: v - 0.5, c: v, v: 1000 }));
@@ -70,7 +70,7 @@ test('Stochastik steht bei einem Schlusskurs am Periodenhoch auf 100', () => {
 test('Signalberechnung ist kausal — kein Blick in die Zukunft', () => {
   // Der entscheidende Test des ganzen Projekts: haette der Signalwert eines
   // Balkens spaeter einen anderen Wert, waere jede Kalibrierung wertlos.
-  const { candles } = synthetic.buildCandles({ symbol: 'PRUEF', venue: 'US', days: 6 });
+  const { candles } = fixture.buildCandles({ symbol: 'PRUEF', venue: 'US', days: 6 });
   const full = features.scoreSeries(candles);
   for (const cut of [90, 140, 200]) {
     const partial = features.scoreSeries(candles.slice(0, cut));
@@ -82,7 +82,7 @@ test('Signalberechnung ist kausal — kein Blick in die Zukunft', () => {
 });
 
 test('Merkmale bleiben im normierten Bereich', () => {
-  const { candles } = synthetic.buildCandles({ symbol: 'GRENZE', venue: 'XETRA', days: 6 });
+  const { candles } = fixture.buildCandles({ symbol: 'GRENZE', venue: 'XETRA', days: 6 });
   const { vectors, scores } = features.scoreSeries(candles);
   let checked = 0;
   vectors.forEach((vec, i) => {

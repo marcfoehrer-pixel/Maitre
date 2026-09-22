@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const yahoo = require('../providers/yahoo');
 const stooq = require('../providers/stooq');
 const news = require('../providers/news');
-const synthetic = require('../providers/synthetic');
+const fixture = require('./fixtures/kurse');
 
 test('Yahoo-Antwort wird zu Kerzen, Luecken fliegen raus', () => {
   const payload = {
@@ -78,24 +78,23 @@ test('Nachrichtenwert bleibt in [-1, 1], auch bei vielen Meldungen', () => {
   assert.ok(agg.score <= 1 && agg.score > 0);
 });
 
-test('Demo-Generator ist deterministisch und liefert plausible Kerzen', () => {
+test('Pruefstand-Kurse sind deterministisch und plausibel', () => {
   const now = new Date('2026-09-17T14:00:00Z');
-  const a = synthetic.fetchCandles('AAPL', { venue: 'US', now });
-  const b = synthetic.fetchCandles('AAPL', { venue: 'US', now });
+  const a = fixture.fetchCandles('AAPL', { venue: 'US', now });
+  const b = fixture.fetchCandles('AAPL', { venue: 'US', now });
   assert.deepStrictEqual(a.candles, b.candles, 'gleicher Titel muss gleiche Reihe ergeben');
   assert.ok(a.candles.length > 100);
-  assert.strictEqual(a.demo, true, 'Demo-Daten muessen als solche erkennbar sein');
   for (const c of a.candles) {
     assert.ok(c.h >= Math.max(c.o, c.c) && c.l <= Math.min(c.o, c.c), 'Hoch/Tief umschliessen den Koerper');
     assert.ok(c.l > 0 && c.v >= 0);
   }
-  const other = synthetic.fetchCandles('MSFT', { venue: 'US', now });
+  const other = fixture.fetchCandles('MSFT', { venue: 'US', now });
   assert.notDeepStrictEqual(a.candles[10], other.candles[10], 'verschiedene Titel duerfen nicht identisch sein');
 });
 
-test('Demo-Kerzen liegen innerhalb der Handelszeit der jeweiligen Boerse', () => {
+test('Pruefstand-Kerzen liegen innerhalb der Handelszeit der jeweiligen Boerse', () => {
   const now = new Date('2026-09-17T14:00:00Z');
-  const de = synthetic.fetchCandles('SAP.DE', { venue: 'XETRA', now });
+  const de = fixture.fetchCandles('SAP.DE', { venue: 'XETRA', now });
   for (const c of de.candles) {
     const berlin = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Europe/Berlin', hourCycle: 'h23', hour: '2-digit', minute: '2-digit', weekday: 'short',

@@ -15,8 +15,7 @@ Starten per Doppelklick auf `Dashboard starten.command` (macOS) bzw.
 ```bash
 npm run stocks          # Live-Betrieb im eigenen WLAN
 npm run stocks:public   # zusätzlich hinter einem Tunnel erreichbar
-npm run stocks:demo     # ohne Netz und ohne Anmeldung, mit Demo-Daten
-npm run test:stocks     # 78 Tests
+npm run test:stocks     # 80 Tests
 ```
 
 ---
@@ -353,9 +352,12 @@ Kein API-Schlüssel, keine Abhängigkeiten, keine Registrierung. Alle Abrufe
 laufen **serverseitig** — die Portale setzen keine CORS-Freigabe, ein Browser
 käme gar nicht an die Daten.
 
-**Fällt ein Portal aus**, bricht nichts ab: die Quellen-Ampel färbt sich, die
-betroffenen Titel werden übersprungen oder auf Demo-Daten zurückgestellt — und
-Demo-Daten sind an jeder Stelle als solche gekennzeichnet.
+**Fällt ein Portal aus**, zeigt das Dashboard das an, statt es zu überspielen:
+die Quellen-Ampel färbt sich, der betroffene Titel wird mit dem echten Grund
+übersprungen („HTTP 403", „Zeitlimit"), und ist gar nichts abrufbar, sagt die
+Oberfläche genau das. **Es gibt keinen Rückfall auf erzeugte Kurse.** Eine
+Rangliste, die aussieht wie immer, aber auf Zahlen beruht, die nie ein Markt
+gebildet hat, wäre der gefährlichste Zustand des ganzen Programms.
 
 ---
 
@@ -422,7 +424,6 @@ stocks/
     yahoo.js             Intraday-Kerzen
     stooq.js             Zweitquelle für den letzten Kurs
     news.js              Schlagzeilen und deren Bewertung
-    synthetic.js         deterministischer Demo-Generator (Offline-Betrieb)
   public/
     index.html           Seitengerüst
     manifest.webmanifest Angaben für den Home-Bildschirm
@@ -432,7 +433,9 @@ stocks/
     dashboard.css        Gestaltung — iPhone zuerst, hell und dunkel
     charts.js            Diagramme als Inline-SVG, ohne Bibliothek
     dashboard.js         Live-Verbindung, Zustand, Darstellung
-  test/                  78 Tests
+  test/
+    fixtures/kurse.js    deterministische Pruefstand-Kurse — nur für Tests
+    …                    80 Tests
 ```
 
 `lib/` kennt weder Netz noch DOM und ist vollständig in Node testbar.
@@ -460,15 +463,15 @@ node stocks/server.js [Optionen]
 | `--interval` | `5m` | Kerzenraster |
 | `--range` | `10d` | Historie für die Kalibrierung |
 | `--top` | `5` | Länge der Rangliste |
-| `--offline` | aus | Demo-Daten statt Portalabruf |
 | `--password` | gemerkt/erzeugt | Zugangskennwort |
 | `--password-file` | `stocks/.kennwort` | Ablage des gemerkten Kennworts |
 | `--public` | aus | Betrieb hinter einem Tunnel: Kennwort verpflichtend, weitergereichte Absender und HTTPS-Angaben beachten |
 | `--no-auth` | aus | Zugangsschutz abschalten — nur im eigenen WLAN vertretbar |
 | `--host` | `0.0.0.0` | Adresse, an der gelauscht wird (`127.0.0.1` = nur dieser Rechner) |
 
-Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `OFFLINE`,
-`DASHBOARD_PASSWORD`, `PUBLIC`, `HOST`, `TRUST_PROXY`, `KENNWORT_DATEI`.
+Auch als Umgebungsvariablen: `PORT`, `REFRESH`, `LIMIT`, `MARKETS`,
+`HORIZON`, `THRESHOLD`, `TOP`, `INTERVAL`, `RANGE`, `DASHBOARD_PASSWORD`,
+`PUBLIC`, `HOST`, `TRUST_PROXY`, `KENNWORT_DATEI`.
 
 ### Schnittstelle
 
@@ -493,7 +496,7 @@ gültige Sitzung voraus.
 npm run test:stocks
 ```
 
-78 Tests über sieben Dateien. Die wichtigsten prüfen nicht Funktionen,
+80 Tests über sieben Dateien. Die wichtigsten prüfen nicht Funktionen,
 sondern **Zusagen**:
 
 - *Signalberechnung ist kausal* — der Signalwert eines Balkens ändert sich
@@ -506,13 +509,18 @@ sondern **Zusagen**:
 - *Die Seite ist fürs iPhone ausgezeichnet* — fehlt das Symbol als PNG oder
   der Eintrag für die sicheren Ränder, merkt man das sonst erst auf dem
   Telefon, und zwar als leere Fläche. Zoom darf nie gesperrt sein.
+- *Es gibt keinen Rückfall auf erzeugte Kurse* — fällt jede Quelle aus, bleibt
+  die Rangliste leer und der echte Fehlergrund steht daneben. Erzeugte Kurse
+  gibt es nur noch als Prüfstand unter `test/fixtures/`; sie erreichen die
+  Rechnung ausschließlich über eine Einspeisung, die im Betrieb nie gesetzt ist.
 - *Ohne Anmeldung gibt der Server nichts heraus* — gegen einen echten,
   gestarteten Server, Pfad für Pfad. Diese Tests haben beim Schreiben eine
   Weiterleitung ohne Sicherheitskopfzeilen gefunden; seitdem werden die
   Kopfzeilen zentral gesetzt statt an jedem Ausgang einzeln.
 
-Der Demo-Generator ist deterministisch (Startwert aus dem Kürzel), Testläufe
-sind daher reproduzierbar.
+Die Prüfstand-Kurse unter `test/fixtures/` sind deterministisch (Startwert aus
+dem Kürzel), Testläufe daher reproduzierbar. Sie liegen bewusst unter `test/`
+und nicht bei den Providern: erzeugte Kurse dürfen den Betrieb nicht erreichen.
 
 ---
 
@@ -524,6 +532,8 @@ Was dieses Dashboard **nicht** kann, und zwar grundsätzlich:
 - **Der Zugangsschutz ist ein Kennwort, keine Benutzerverwaltung.** Für ein
   Dashboard einer Person ist das angemessen; für mehrere Personen mit
   unterschiedlichen Rechten wäre es zu wenig.
+- **Keine Daten heißt keine Anzeige.** Antworten die Portale nicht, bleibt die
+  Rangliste leer. Das ist Absicht — ein Platzhalter wäre schlimmer als nichts.
 - **Kurse sind verzögert.** Kostenlose Portale liefern für Xetra und die
   US-Börsen typisch 15 Minuten verzögert. Für Sekundenentscheidungen taugt das
   nicht — und mit verzögerten Daten wäre ohnehin nichts zu holen.

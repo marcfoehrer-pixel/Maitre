@@ -63,7 +63,11 @@
 
     source.addEventListener('snapshot', (event) => {
       state.snapshot = JSON.parse(event.data);
-      setConnection('live', 'live');
+      // Die Verbindung steht — aber "live" neben einer leeren Rangliste waere
+      // beruhigend und falsch zugleich. Die Ampel soll den Datenstand zeigen,
+      // nicht nur den Zustand der Leitung.
+      if (state.snapshot.noData) setConnection('error', 'keine Kursdaten');
+      else setConnection('live', 'live');
       endPull();
       render();
     });
@@ -72,6 +76,7 @@
       const status = JSON.parse(event.data);
       if (status.state === 'laeuft') setConnection('busy', 'aktualisiert …');
       else if (status.state === 'fehler') setConnection('error', `Fehler: ${status.message}`);
+      else if (state.snapshot && state.snapshot.noData) setConnection('error', 'keine Kursdaten');
       else if (state.snapshot) setConnection('live', 'live');
       if (status.state !== 'laeuft') endPull();
     });
@@ -214,14 +219,19 @@
     const box = $('notices');
     const notices = [];
 
-    if (snap.demoData) {
+    if (snap.noData) {
+      const gestoert = (snap.sources || []).filter((q) => q.status !== 'ok');
       notices.push({
         level: 'critical',
         icon: '⚠',
-        title: 'Demo-Daten, keine echten Kurse.',
+        title: 'Keine Kursdaten abrufbar — die Rangliste bleibt leer.',
         body:
-          'Der Server läuft im Offline-Modus oder erreicht die Portale nicht. Die Zahlen ' +
-          'zeigen, dass die Rechenkette arbeitet — handeln lässt sich danach nicht.',
+          'Das Dashboard zeigt echte Kurse oder gar keine; erfundene Zahlen gibt es nicht. ' +
+          (gestoert.length
+            ? `Gemeldet: ${gestoert.map((q) => `${q.name} (${q.detail || 'nicht erreichbar'})`).join(', ')}. `
+            : '') +
+          'Meist liegt es an der Verbindung oder daran, dass das Portal gerade drosselt — ' +
+          'in der Regel erledigt sich das mit dem nächsten Durchlauf.',
       });
     }
 
@@ -289,7 +299,6 @@
     const flags = [
       item.session.open ? '' : `<span class="chip chip-warn">${esc(item.session.phase)}</span>`,
       item.stale ? '<span class="chip chip-warn">veraltet</span>' : '',
-      item.demo ? '<span class="chip chip-demo">Demo</span>' : '',
       item.meetsThreshold ? '<span class="chip chip-good">Schwelle erreicht</span>' : '',
     ].filter(Boolean).join(' ');
 
@@ -360,7 +369,20 @@
     const box = $('ranking');
     const items = visibleItems();
     if (items.length === 0) {
-      box.innerHTML = '<div class="panel empty">Noch keine Daten — der erste Durchlauf läuft.</div>';
+      // "Leer" hat zwei sehr verschiedene Gruende — sie zu verwechseln waere
+      // der Unterschied zwischen "nichts dabei" und "nichts abrufbar".
+      const grund = state.snapshot.noData
+        ? '<strong>Keine Kursdaten abrufbar.</strong><br>Die Portale antworten derzeit nicht. ' +
+          `Der nächste Durchlauf läuft automatisch.${(state.snapshot.skipped || []).length
+            ? `<br><span class="card-note">${esc(state.snapshot.skipped.slice(0, 3)
+                .map((x) => `${x.symbol}: ${x.reason}`).join(' · '))}</span>` : ''}`
+        : 'Kein Titel im gewählten Markt.';
+      box.innerHTML = `<div class="panel empty">${grund}</div>`;
+      // Die Unterzeile darf nicht weiter fuenf Kandidaten ankuendigen,
+      // die es gerade nicht gibt.
+      $('rankSub').textContent = state.snapshot.noData
+        ? 'Derzeit keine auswertbaren Titel.'
+        : 'Kein Titel im gewählten Markt.';
       return;
     }
     box.innerHTML = items.map((item, i) => cardMarkup(item, i + 1)).join('');
@@ -439,7 +461,6 @@
           <span class="row-main">
             <span class="row-sym">${esc(r.symbol)}
               <span class="chip ${r.market === 'DE' ? 'chip-de' : 'chip-us'}">${r.market}</span>
-              ${r.demo ? '<span class="chip chip-demo">Demo</span>' : ''}
               ${met ? '<span class="chip chip-good">✓</span>' : ''}
             </span>
             <span class="row-sub">${esc(r.name)} · ${esc(num(r.price, 2))} ${esc(r.currency || '')} ·
@@ -463,7 +484,7 @@
         const met = r.probability >= state.threshold;
         return `<tr>
           <td class="num">${r.rank}</td>
-          <td><span class="sym">${esc(r.symbol)}</span> <span class="name">${esc(r.name)}</span>${met ? ' <span class="chip chip-good">✓</span>' : ''}${r.demo ? ' <span class="chip chip-demo">Demo</span>' : ''}</td>
+          <td><span class="sym">${esc(r.symbol)}</span> <span class="name">${esc(r.name)}</span>${met ? ' <span class="chip chip-good">✓</span>' : ''}</td>
           <td>${r.market === 'DE' ? 'Deutschland' : 'USA'}</td>
           <td class="num">${esc(num(r.price, 2))} ${esc(r.currency || '')}</td>
           <td class="num">${deltaMarkup(r.changePct)}</td>
