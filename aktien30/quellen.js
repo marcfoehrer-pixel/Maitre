@@ -100,18 +100,20 @@ async function ladeAlle(universum, { log = () => {}, parallel = 4 } = {}) {
   const td = schluessel ? twelveData(schluessel, Number(process.env.TWELVEDATA_PRO_MINUTE) || 8) : null;
   const ergebnis = new Map();
   let yahooFehler = 0;
+  let yahooOk = 0;
 
   const warteschlange = [...universum];
   const arbeiter = Array.from({ length: parallel }, async () => {
     while (warteschlange.length) {
       const t = warteschlange.shift();
       // Sperrt Yahoo erkennbar pauschal, gar nicht weiter versuchen — spart Minuten.
-      if (yahooFehler >= 15 && ergebnis.size === 0) {
+      if (yahooFehler >= 15 && yahooOk === 0) {
         ergebnis.set(t.symbol, { ...t, fehler: ['Yahoo: uebersprungen (gesperrt)'] });
         continue;
       }
       try {
         ergebnis.set(t.symbol, { ...t, kurse: await yahoo(t), quelle: 'Yahoo' });
+        yahooOk++;
       } catch (e) {
         yahooFehler++;
         ergebnis.set(t.symbol, { ...t, fehler: [`Yahoo: ${e.message}`] });
