@@ -1,0 +1,50 @@
+name: Aktien-Ranking 30 Tage
+
+# Abruf per Knopfdruck (GitHub-App: Actions → Aktien-Ranking 30 Tage → Run workflow)
+# und zusaetzlich werktags nach US-Boersenschluss, damit die Seite morgens aktuell ist.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 21 * * 1-5'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: aktien-ranking
+  cancel-in-progress: false
+
+jobs:
+  berechnen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kurse laden und Ranking berechnen
+        run: node aktien30/ranking.js --aus aktien30/ausgabe
+        env:
+          # Optional: springt ein, falls Yahoo die GitHub-Server abweist.
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+      - name: Bericht als Download bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: aktien-ranking
+          path: aktien30/ausgabe
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: aktien30/ausgabe
+
+  veroeffentlichen:
+    needs: berechnen
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.seite.outputs.page_url }}
+    steps:
+      - id: seite
+        uses: actions/deploy-pages@v4

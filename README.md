@@ -99,3 +99,7 @@ Tetris.game.score = 10000;   // Zustand verändern
 Tetris.game.level = 10;      // Fallgeschwindigkeit testen
 Tetris.newGame();            // neu starten
 ```
+
+## Weiteres Werkzeug im Repository
+
+[`aktien30/`](aktien30/README.md): Aktien-Ranking für 30 Tage über DAX, Nasdaq-100 und Dow Jones, abrufbar unter https://marcfoehrer-pixel.github.io/Maitre/

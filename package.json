@@ -6,7 +6,9 @@
   "scripts": {
     "test": "node --test test/engine.test.js",
     "start": "npx --yes serve .",
-    "build": "node tools/build-single-file.js"
+    "build": "node tools/build-single-file.js",
+    "aktien": "node aktien30/ranking.js",
+    "test:aktien": "node --test aktien30/test/analyse.test.js aktien30/test/quellen.test.js"
   },
   "keywords": [
     "tetris",
